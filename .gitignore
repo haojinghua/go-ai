@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+*.bin.gz
+analysis_logs/
+gtp_logs/
+grid_debug.png
