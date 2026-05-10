@@ -183,7 +183,7 @@ class KataGoAnalysisEngine:
         except Exception as e:
             print(f"Analysis 引擎重启失败: {e}")
     
-    def analyze(self, stones, next_player, board_size=19, komi=6.5, max_time=10.0):
+    def analyze(self, stones, next_player, board_size=19, komi=6.5, max_visits=5000, max_time=30.0):
         """
         分析局面，返回 Top N 推荐走法。
         
@@ -191,6 +191,7 @@ class KataGoAnalysisEngine:
         next_player: "B" 或 "W"，轮到谁走
         board_size: 棋盘大小
         komi: 贴目
+        max_visits: 最大搜索次数（控制 AI 强度）
         max_time: 最大思考时间（秒）
         """
         with self.lock:
@@ -231,7 +232,7 @@ class KataGoAnalysisEngine:
                 "boardXSize": board_size,
                 "boardYSize": board_size,
                 "analyzeTurns": [len(moves)],
-                "maxVisits": 5000,
+                "maxVisits": max_visits,
                 "overrideSettings": {
                     "maxTime": max_time,
                     "ignorePreRootHistory": True
@@ -377,6 +378,8 @@ class GoHandler(SimpleHTTPRequestHandler):
             self.handle_analyze(data)
         elif parsed.path == "/api/recognize":
             self.handle_recognize(data)
+        elif parsed.path == "/api/screenshot":
+            self.handle_screenshot(data)
         else:
             self.send_error(404)
     
@@ -470,6 +473,90 @@ class GoHandler(SimpleHTTPRequestHandler):
         result = recognize_board(image_data, board_size)
         self.send_json(result)
     
+    def handle_screenshot(self, data):
+        """一键截屏 + 识别 + 分析"""
+        import tempfile
+        
+        if not HAS_RECOGNITION:
+            self.send_json({"status": "error", "message": "图像识别模块不可用"}, 500)
+            return
+        
+        board_size = data.get("board_size", 19)
+        max_visits = data.get("max_visits", 5000)
+        
+        # 使用 macOS screencapture 进行交互式区域截屏
+        tmp_path = os.path.join(tempfile.gettempdir(), "go_screenshot.png")
+        try:
+            result = subprocess.run(
+                ["screencapture", "-i", tmp_path],
+                timeout=30
+            )
+            if result.returncode != 0 or not os.path.exists(tmp_path):
+                self.send_json({"status": "cancelled", "message": "截屏已取消"})
+                return
+        except subprocess.TimeoutExpired:
+            self.send_json({"status": "error", "message": "截屏超时"})
+            return
+        except Exception as e:
+            self.send_json({"status": "error", "message": f"截屏失败: {e}"})
+            return
+        
+        # 读取截图并转 base64
+        try:
+            with open(tmp_path, "rb") as f:
+                image_b64 = base64.b64encode(f.read()).decode("utf-8")
+            os.remove(tmp_path)
+        except Exception as e:
+            self.send_json({"status": "error", "message": f"读取截图失败: {e}"})
+            return
+        
+        # 识别棋盘
+        recognize_result = recognize_board(image_b64, board_size)
+        if recognize_result.get("status") != "ok":
+            self.send_json(recognize_result)
+            return
+        
+        # 自动进行 AI 分析
+        stones = recognize_result.get("stones", [])
+        if not stones:
+            self.send_json({"status": "ok", "recognized": True, "stones": [], "stone_count": recognize_result.get("stone_count", {}), "message": "棋盘为空，无需分析"})
+            return
+        
+        # 推断下一手颜色
+        black_count = sum(1 for s in stones if s["color"] == "B")
+        white_count = sum(1 for s in stones if s["color"] == "W")
+        next_player = "B" if black_count <= white_count else "W"
+        
+        # 调用分析引擎
+        if analysis_engine and analysis_engine.ready:
+            analysis_result = analysis_engine.analyze(
+                stones=[{"color": s["color"], "pos": s["pos"]} for s in stones if "pos" in s],
+                next_player=next_player,
+                board_size=board_size,
+                max_visits=max_visits,
+                max_time=30.0
+            )
+            # 合并结果
+            self.send_json({
+                "status": "ok",
+                "stones": stones,
+                "stone_count": recognize_result.get("stone_count", {}),
+                "next_player": next_player,
+                "recommendations": analysis_result.get("recommendations", []),
+                "image": image_b64
+            })
+        else:
+            # 引擎不可用时只返回识别结果
+            self.send_json({
+                "status": "ok",
+                "stones": stones,
+                "stone_count": recognize_result.get("stone_count", {}),
+                "next_player": next_player,
+                "recommendations": [],
+                "message": "分析引擎未就绪，仅返回识别结果",
+                "image": image_b64
+            })
+    
     def handle_analyze(self, data):
         """处理局面分析请求"""
         global analysis_engine
@@ -482,6 +569,7 @@ class GoHandler(SimpleHTTPRequestHandler):
         next_player = data.get("next_player", "B")
         board_size = data.get("board_size", 19)
         komi = data.get("komi", 6.5)
+        max_visits = data.get("max_visits", 5000)
         
         if not stones:
             self.send_json({"status": "error", "message": "棋盘为空"}, 400)
@@ -492,7 +580,8 @@ class GoHandler(SimpleHTTPRequestHandler):
             next_player=next_player,
             board_size=board_size,
             komi=komi,
-            max_time=10.0
+            max_visits=max_visits,
+            max_time=30.0
         )
         
         self.send_json(result)

@@ -88,29 +88,6 @@
         .paste-zone.has-img { border-color: #2a9d6a; padding: 6px; }
         .paste-zone img { max-width: 100%; max-height: 120px; border-radius: 4px; }
         .paste-hint { font-size: 0.75em; margin-top: 4px; color: #555; }
-        /* Brush bar */
-        .brush-bar { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
-        .brush-dot {
-            width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
-            border: 2.5px solid transparent; transition: all 0.15s;
-        }
-        .brush-dot:hover { transform: scale(1.1); }
-        .brush-dot.sel { border-color: #4a90d9; box-shadow: 0 0 8px rgba(74,144,217,0.6); }
-        .brush-black { background: radial-gradient(circle at 35% 35%, #555, #111); }
-        .brush-white { background: radial-gradient(circle at 35% 35%, #fff, #ccc); }
-        .brush-erase { background: #dcb35c; position: relative; }
-        .brush-erase::after {
-            content: "\2715"; position: absolute; inset: 0;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 15px; color: #666;
-        }
-        .brush-bar .info { font-size: 0.8em; color: #888; margin-left: auto; }
-        .play-mode-badge {
-            display: inline-block; padding: 3px 10px; border-radius: 4px;
-            font-size: 0.82em; font-weight: 600; margin-bottom: 8px;
-        }
-        .play-mode-badge.black { background: #222; color: #fff; border: 1px solid #555; }
-        .play-mode-badge.white { background: #f0f0f0; color: #222; border: 1px solid #999; }
     </style>
 </head>
 <body>
@@ -170,13 +147,12 @@
                     <input type="file" id="file-upload" accept="image/*" style="display:none" onchange="handleFileUpload(event)">
                 </div>
 
-                <div id="play-mode-indicator"></div>
 
-                <div class="brush-bar" id="brush-bar-section">
-                    <div class="brush-dot brush-black" id="brush-1" onclick="setBrush(1)" title="画笔:放黑子"></div>
-                    <div class="brush-dot brush-white" id="brush-2" onclick="setBrush(2)" title="画笔:放白子"></div>
-                    <div class="brush-dot brush-erase" id="brush-0" onclick="setBrush(0)" title="画笔:擦除"></div>
-                    <span class="info" id="stone-count">黑 0 白 0</span>
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+                    <button class="btn btn-secondary" onclick="analyzeMoveBack()" title="后退一手" style="padding:4px 12px;font-size:1.1em;">⬅</button>
+                    <span id="move-index-display" style="font-size:0.85em;color:#aaa;">0/0</span>
+                    <button class="btn btn-secondary" onclick="analyzeMoveForward()" title="前进一手" style="padding:4px 12px;font-size:1.1em;">➡</button>
+                    <span class="info" id="stone-count" style="margin-left:auto;font-size:0.8em;color:#888;">黑 0 白 0</span>
                 </div>
 
                 <div class="settings" id="next-player-section">
@@ -185,10 +161,21 @@
                         <option value="B" selected>黑方</option>
                         <option value="W">白方</option>
                     </select>
+                    <label>AI 强度</label>
+                    <select id="analyze-strength">
+                        <option value="100">入门 (100 visits)</option>
+                        <option value="400">弱 (400 visits)</option>
+                        <option value="1600">中等 (1600 visits)</option>
+                        <option value="5000" selected>强 (5000 visits)</option>
+                        <option value="10000">最强 (10000 visits)</option>
+                    </select>
                 </div>
-                <button class="btn btn-success" onclick="runAnalysis()" id="btn-analyze">AI 分析 (最多 10 秒)</button>
-                <button class="btn btn-secondary" onclick="undoAnalyzeMove()" id="btn-undo-analyze">悔棋</button>
+                <button class="btn btn-success" onclick="runAnalysis()" id="btn-analyze">AI 分析</button>
+                <button class="btn btn-primary" onclick="oneClickAnalyze()" id="btn-screenshot" title="快捷键: Ctrl+Shift+A">⌘ 一键截屏分析</button>
                 <button class="btn btn-secondary" onclick="clearAnalyzeBoard()">清空棋盘</button>
+                <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:0.85em;color:#aaa;cursor:pointer;">
+                    <input type="checkbox" id="show-move-numbers" checked onchange="toggleMoveNumbers(this.checked)"> 显示落子序号
+                </label>
 
                 <div class="status" id="analyze-status">摆好局面后点击分析</div>
             </div>
@@ -218,21 +205,22 @@ var thinking = false;
 
 // 分析
 var analyzeBoard = [];
-var analyzeBrush = 1;
+var analyzeBaseBoard = [];    // 基础棋盘（图片识别或空板）
 var analyzeResults = [];
 var isAnalyzing = false;
 var hoveredPVIndex = -1; // 当前悬停的推荐走法索引（-1表示没有悬停）
-var analyzePlayMode = true;   // 默认落子模式（黑白交替），点画笔切换为画笔模式
+var showMoveNumbers = true; // 是否显示落子序号
 var analyzeNextColor = 'B';   // 分析模式下一手颜色
 var analyzeLastMove = null;   // 分析模式最后一手位置
-var analyzeMoveHistory = [];  // 分析模式落子历史（用于悔棋）
+var analyzeMoveHistory = [];  // 分析模式落子历史
+var analyzeMoveIndex = 0;     // 当前浏览位置（显示到第几手）
 
 // 对弈模式推荐
 var playRecommendations = [];
-var PLAY_REC_COLORS = ['#FF3B30','#34C759','#007AFF']; // 红、绿、蓝
+var PLAY_REC_COLORS = ['#1B5E20','#4CAF50','#A5D6A7']; // 深绿到浅绿
 
 var COLS = 'ABCDEFGHJKLMNOPQRST';
-var RANK_COLORS = ['#FF3B30','#FF9500','#FFCC00','#34C759','#007AFF'];
+var RANK_COLORS = ['#1B5E20','#2E7D32','#4CAF50','#81C784','#A5D6A7']; // 深绿到浅绿（胜率高→深）
 
 // ==============================================================
 // 工具函数
@@ -348,22 +336,24 @@ function drawBoard() {
         ctx.lineWidth = 2; ctx.stroke();
     }
 
-    // 分析: 落子手数标记
-    if (currentTab==='analyze' && analyzeMoveHistory.length>0) {
-        for (var mi=0; mi<analyzeMoveHistory.length; mi++) {
+    // 分析: 落子手数标记（只显示到 analyzeMoveIndex）
+    if (currentTab==='analyze' && analyzeMoveIndex>0) {
+        for (var mi=0; mi<analyzeMoveIndex; mi++) {
             var mv = analyzeMoveHistory[mi];
             var mx = margin+mv.col*cellSize, my = margin+mv.row*cellSize;
-            // 最后一手加红圈
-            if (mi === analyzeMoveHistory.length - 1) {
+            // 当前位置的最后一手加红圈
+            if (mi === analyzeMoveIndex - 1) {
                 ctx.beginPath(); ctx.arc(mx, my, cellSize*0.22, 0, Math.PI*2);
                 ctx.strokeStyle = mv.color===1 ? '#fff' : '#f00';
                 ctx.lineWidth = 2.5; ctx.stroke();
             }
-            // 在棋子上显示手数编号
-            ctx.fillStyle = mv.color===1 ? '#fff' : '#000';
-            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.font = 'bold '+Math.round(cellSize*0.32)+'px sans-serif';
-            ctx.fillText(String(mi+1), mx, my);
+            // 在棋子上显示手数编号（可通过开关控制）
+            if (showMoveNumbers) {
+                ctx.fillStyle = mv.color===1 ? '#fff' : '#000';
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.font = 'bold '+Math.round(cellSize*0.32)+'px sans-serif';
+                ctx.fillText(String(mi+1), mx, my);
+            }
         }
         ctx.textBaseline = 'alphabetic';
     }
@@ -376,38 +366,43 @@ function drawBoard() {
             if (!pos) continue;
             var rr=pos[0], cc=pos[1];
             var rx=margin+cc*cellSize, ry=margin+rr*cellSize;
-            var rad=cellSize*0.38;
+            var rad=cellSize*0.55;
 
             ctx.beginPath(); ctx.arc(rx, ry, rad, 0, Math.PI*2);
-            ctx.fillStyle = PLAY_REC_COLORS[i]; ctx.globalAlpha=0.7; ctx.fill(); ctx.globalAlpha=1;
-            ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
+            ctx.fillStyle = PLAY_REC_COLORS[i]; ctx.globalAlpha=0.85; ctx.fill(); ctx.globalAlpha=1;
+            ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.stroke();
 
-            ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
-            ctx.font = 'bold '+Math.round(cellSize*0.28)+'px sans-serif';
+            ctx.textAlign='center'; ctx.textBaseline='middle';
+            ctx.font = 'bold '+Math.round(cellSize*0.36)+'px sans-serif';
+            ctx.fillStyle='#000';
             ctx.fillText(rec.winrate+'%', rx, ry);
             ctx.textBaseline='alphabetic';
         }
     }
 
-    // 分析: Top 5 推荐
-    if (currentTab==='analyze' && analyzeResults.length>0) {
+    // 分析: Top 5 推荐（悬停 PV 推演时隐藏）
+    if (currentTab==='analyze' && analyzeResults.length>0 && hoveredPVIndex < 0) {
         for (var i=0;i<analyzeResults.length;i++) {
             var rec = analyzeResults[i];
             var pos = gtpToBoard(rec.move);
             if (!pos) continue;
             var rr=pos[0], cc=pos[1];
             var rx=margin+cc*cellSize, ry=margin+rr*cellSize;
-            var rad=cellSize*0.42;
+            var rad=cellSize*0.58;
 
             ctx.beginPath(); ctx.arc(rx, ry, rad, 0, Math.PI*2);
-            ctx.fillStyle = RANK_COLORS[i]; ctx.globalAlpha=0.85; ctx.fill(); ctx.globalAlpha=1;
-            ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.stroke();
+            ctx.fillStyle = RANK_COLORS[i]; ctx.globalAlpha=0.9; ctx.fill(); ctx.globalAlpha=1;
+            ctx.strokeStyle='#fff'; ctx.lineWidth=2.5; ctx.stroke();
 
-            ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='top';
-            ctx.font = 'bold '+Math.round(cellSize*0.34)+'px sans-serif';
-            ctx.fillText(String(i+1), rx, ry-cellSize*0.22);
-            ctx.font = Math.round(cellSize*0.22)+'px sans-serif';
-            ctx.fillText(rec.winrate+'%', rx, ry+cellSize*0.05);
+            // 序号 — 黑色
+            ctx.textAlign='center'; ctx.textBaseline='top';
+            ctx.font = 'bold '+Math.round(cellSize*0.42)+'px sans-serif';
+            ctx.fillStyle='#000';
+            ctx.fillText(String(i+1), rx, ry-cellSize*0.30);
+            // 胜率 — 黑色
+            ctx.font = 'bold '+Math.round(cellSize*0.30)+'px sans-serif';
+            ctx.fillStyle='#000';
+            ctx.fillText(rec.winrate+'%', rx, ry+cellSize*0.08);
             ctx.textBaseline='alphabetic';
         }
     }
@@ -502,20 +497,11 @@ canvas.addEventListener('mousemove', function(e) {
         ctx.fill();
     } else {
         if (isAnalyzing) return;
-        if (analyzePlayMode) {
-            // 落子模式：显示下一手颜色的半透明预览
-            if (analyzeBoard[row]&&analyzeBoard[row][col]!==0) return;
-            ctx.beginPath(); ctx.arc(x,y,cellSize*0.4,0,Math.PI*2);
-            ctx.fillStyle = analyzeNextColor==='B' ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.3)';
-            ctx.fill();
-        } else if (analyzeBrush===1) {
-            ctx.beginPath(); ctx.arc(x,y,cellSize*0.4,0,Math.PI*2); ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.fill();
-        } else if (analyzeBrush===2) {
-            ctx.beginPath(); ctx.arc(x,y,cellSize*0.4,0,Math.PI*2); ctx.fillStyle='rgba(255,255,255,0.3)'; ctx.fill();
-        } else {
-            ctx.beginPath(); ctx.arc(x,y,cellSize*0.3,0,Math.PI*2);
-            ctx.strokeStyle='rgba(255,0,0,0.5)'; ctx.lineWidth=2; ctx.stroke();
-        }
+        // 落子模式：显示下一手颜色的半透明预览
+        if (analyzeBoard[row]&&analyzeBoard[row][col]!==0) return;
+        ctx.beginPath(); ctx.arc(x,y,cellSize*0.4,0,Math.PI*2);
+        ctx.fillStyle = analyzeNextColor==='B' ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.3)';
+        ctx.fill();
     }
 });
 
@@ -631,7 +617,9 @@ function newGame() {
     aiColor = playerColor==='B'?'W':'B';
     initPlayBoard();
     // 同步初始化分析棋盘
-    analyzeBoard=[]; for(var r=0;r<boardSize;r++){analyzeBoard[r]=[];for(var c=0;c<boardSize;c++)analyzeBoard[r][c]=0;}
+    analyzeBoard=[]; analyzeBaseBoard=[];
+    for(var r=0;r<boardSize;r++){analyzeBoard[r]=[];analyzeBaseBoard[r]=[];for(var c=0;c<boardSize;c++){analyzeBoard[r][c]=0;analyzeBaseBoard[r][c]=0;}}
+    analyzeMoveHistory=[]; analyzeMoveIndex=0; updateMoveIndexDisplay();
     drawBoard();
 
     var maxVisits = parseInt(document.getElementById('ai-strength').value);
@@ -728,6 +716,14 @@ function updateHistory() {
 }
 
 // ==============================================================
+// 切换落子序号显示
+// ==============================================================
+function toggleMoveNumbers(checked) {
+    showMoveNumbers = checked;
+    drawBoard();
+}
+
+// ==============================================================
 // 导出 SGF 棋谱
 // ==============================================================
 function exportSGF() {
@@ -814,65 +810,102 @@ function fetchPlayRecommendations() {
 // ==============================================================
 function initAnalyzeBoardData() {
     analyzeBoard = [];
-    for (var r=0;r<boardSize;r++) { analyzeBoard[r]=[]; for(var c=0;c<boardSize;c++) analyzeBoard[r][c]=0; }
+    analyzeBaseBoard = [];
+    for (var r=0;r<boardSize;r++) {
+        analyzeBoard[r]=[]; analyzeBaseBoard[r]=[];
+        for(var c=0;c<boardSize;c++) { analyzeBoard[r][c]=0; analyzeBaseBoard[r][c]=0; }
+    }
     analyzeResults = [];
-    analyzePlayMode = true;
     analyzeNextColor = document.getElementById('next-player') ? document.getElementById('next-player').value : 'B';
     analyzeLastMove = null;
     analyzeMoveHistory = [];
+    analyzeMoveIndex = 0;
+    updateMoveIndexDisplay();
     updateStoneCount();
 }
 
-function handleAnalyzeClick(row, col) {
-if (isAnalyzing) return;
+// 从 baseBoard + history[0..index-1] 重建 analyzeBoard
+function rebuildAnalyzeBoard() {
+    for (var r=0;r<boardSize;r++) for(var c=0;c<boardSize;c++) analyzeBoard[r][c]=analyzeBaseBoard[r][c];
+    for (var i=0;i<analyzeMoveIndex;i++) {
+        var mv = analyzeMoveHistory[i];
+        analyzeBoard[mv.row][mv.col] = mv.color;
+        // 重新执行提子
+        if (mv.captured && mv.captured.length>0) {
+            for (var j=0;j<mv.captured.length;j++) {
+                analyzeBoard[mv.captured[j].row][mv.captured[j].col] = 0;
+            }
+        }
+    }
+}
 
-// 落子分析模式：点击空位落子
-if (analyzePlayMode) {
+function updateMoveIndexDisplay() {
+    var el = document.getElementById('move-index-display');
+    if (el) el.textContent = analyzeMoveIndex + '/' + analyzeMoveHistory.length;
+}
+
+function analyzeMoveBack() {
+    if (analyzeMoveIndex <= 0) return;
+    analyzeMoveIndex--;
+    rebuildAnalyzeBoard();
+    // 更新下一手颜色
+    if (analyzeMoveIndex > 0) {
+        var lastColor = analyzeMoveHistory[analyzeMoveIndex-1].color;
+        analyzeNextColor = (lastColor === 1) ? 'W' : 'B';
+    } else {
+        inferNextPlayer();
+    }
+    document.getElementById('next-player').value = analyzeNextColor;
+    analyzeLastMove = analyzeMoveIndex > 0 ? [analyzeMoveHistory[analyzeMoveIndex-1].row, analyzeMoveHistory[analyzeMoveIndex-1].col] : null;
+    analyzeResults = [];
+    hoveredPVIndex = -1;
+    updateMoveIndexDisplay();
+    updatePlayModeIndicator();
+    updateStoneCount();
+    drawBoard();
+}
+
+function analyzeMoveForward() {
+    if (analyzeMoveIndex >= analyzeMoveHistory.length) return;
+    analyzeMoveIndex++;
+    rebuildAnalyzeBoard();
+    // 更新下一手颜色
+    var lastColor = analyzeMoveHistory[analyzeMoveIndex-1].color;
+    analyzeNextColor = (lastColor === 1) ? 'W' : 'B';
+    document.getElementById('next-player').value = analyzeNextColor;
+    analyzeLastMove = [analyzeMoveHistory[analyzeMoveIndex-1].row, analyzeMoveHistory[analyzeMoveIndex-1].col];
+    analyzeResults = [];
+    hoveredPVIndex = -1;
+    updateMoveIndexDisplay();
+    updatePlayModeIndicator();
+    updateStoneCount();
+    drawBoard();
+}
+
+function handleAnalyzeClick(row, col) {
+    if (isAnalyzing) return;
     if (analyzeBoard[row][col] !== 0) return; // 有子的位置不能下
+
+    // 如果当前不在最末尾，截断后面的历史
+    if (analyzeMoveIndex < analyzeMoveHistory.length) {
+        analyzeMoveHistory = analyzeMoveHistory.slice(0, analyzeMoveIndex);
+    }
+
     var stoneColor = (analyzeNextColor === 'B') ? 1 : 2;
     analyzeBoard[row][col] = stoneColor;
     // 提子逻辑：移除被围死的对方棋子
     var captured = removeCaptures(row, col, stoneColor, analyzeBoard);
     analyzeMoveHistory.push({row: row, col: col, color: stoneColor, captured: captured});
+    analyzeMoveIndex = analyzeMoveHistory.length;
     analyzeLastMove = [row, col];
     // 切换下一手颜色
     analyzeNextColor = (analyzeNextColor === 'B') ? 'W' : 'B';
     document.getElementById('next-player').value = analyzeNextColor;
     analyzeResults = [];
     hoveredPVIndex = -1;
+    updateMoveIndexDisplay();
     updateStoneCount();
     updatePlayModeIndicator();
-    drawBoard();
-    return;
-}
-
-// 画笔模式
-if (analyzeBrush === 0) {
-analyzeBoard[row][col] = 0;
-} else {
-analyzeBoard[row][col] = (analyzeBoard[row][col]===analyzeBrush) ? 0 : analyzeBrush;
-}
-analyzeResults = [];
-hoveredPVIndex = -1;
-analyzePlayMode = false;
-analyzeLastMove = null;
-analyzeMoveHistory = [];
-inferNextPlayer();
-drawBoard();
-updateStoneCount();
-}
-
-function setBrush(type) {
-    analyzeBrush = type;
-    // 切换画笔时退出落子模式
-    analyzePlayMode = false;
-    analyzeLastMove = null;
-    analyzeMoveHistory = [];
-    analyzeResults = [];
-    hoveredPVIndex = -1;
-    updatePlayModeIndicator();
-    document.querySelectorAll('.brush-dot').forEach(function(d){d.classList.remove('sel');});
-    document.getElementById('brush-'+type).classList.add('sel');
     drawBoard();
 }
 
@@ -899,48 +932,18 @@ function inferNextPlayer() {
 }
 
 function clearAnalyzeBoard() {
-initAnalyzeBoardData();
-analyzePlayMode = true;
-analyzeLastMove = null;
-analyzeMoveHistory = [];
-analyzeNextColor = document.getElementById('next-player').value;
-updatePlayModeIndicator();
-document.getElementById('paste-thumb').style.display = 'none';
-document.getElementById('paste-label').style.display = '';
-document.getElementById('paste-hint').style.display = '';
-document.getElementById('paste-zone').classList.remove('has-img');
-document.getElementById('analyze-status').innerHTML = '摆好局面后点击分析';
-drawBoard();
+    initAnalyzeBoardData();
+    analyzeLastMove = null;
+    analyzeNextColor = document.getElementById('next-player').value;
+    updatePlayModeIndicator();
+    document.getElementById('paste-thumb').style.display = 'none';
+    document.getElementById('paste-label').style.display = '';
+    document.getElementById('paste-hint').style.display = '';
+    document.getElementById('paste-zone').classList.remove('has-img');
+    document.getElementById('analyze-status').innerHTML = '摆好局面后点击分析';
+    drawBoard();
 }
 
-function undoAnalyzeMove() {
-if (analyzeMoveHistory.length === 0) return;
-var lastStep = analyzeMoveHistory.pop();
-analyzeBoard[lastStep.row][lastStep.col] = 0;
-// 恢复被提走的棋子
-if (lastStep.captured && lastStep.captured.length > 0) {
-    for (var i = 0; i < lastStep.captured.length; i++) {
-        var cap = lastStep.captured[i];
-        analyzeBoard[cap.row][cap.col] = cap.color;
-    }
-}
-// 恢复颜色到上一手
-analyzeNextColor = (lastStep.color === 1) ? 'B' : 'W';
-document.getElementById('next-player').value = analyzeNextColor;
-// 更新最后一手标记
-if (analyzeMoveHistory.length > 0) {
-    var prev = analyzeMoveHistory[analyzeMoveHistory.length - 1];
-    analyzeLastMove = [prev.row, prev.col];
-} else {
-    analyzeLastMove = null;
-}
-analyzeResults = [];
-hoveredPVIndex = -1;
-analyzePlayMode = true;
-updatePlayModeIndicator();
-updateStoneCount();
-drawBoard();
-}
 
 // 粘贴截图
 document.addEventListener('paste', function(e) {
@@ -1000,11 +1003,10 @@ function processImageFile(file) {
                 for (var i=0;i<data.stones.length;i++) {
                     var s = data.stones[i];
                     analyzeBoard[s.row][s.col] = (s.color==='B') ? 1 : 2;
+                    analyzeBaseBoard[s.row][s.col] = (s.color==='B') ? 1 : 2;
                 }
                 // 自动推断轮到谁走
                 inferNextPlayer();
-                // 识别完成后自动进入落子模式
-                analyzePlayMode = true;
                 updatePlayModeIndicator();
                 updateStoneCount();
                 drawBoard();
@@ -1043,18 +1045,17 @@ function runAnalysis() {
     }
 
     var nextPlayer = document.getElementById('next-player').value;
+    var analyzeVisits = parseInt(document.getElementById('analyze-strength').value);
     isAnalyzing = true;
     document.getElementById('btn-analyze').disabled = true;
-    document.getElementById('analyze-status').innerHTML = '<span class="thinking">AI 分析中 (最多 10 秒)... 请等待完成后再落子</span>';
+    document.getElementById('analyze-status').innerHTML = '<span class="thinking">AI 分析中... 请等待完成后再落子</span>';
 
-    fetch('/api/analyze', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({stones:stones, next_player:nextPlayer, board_size:boardSize, komi:6.5})
+fetch('/api/analyze', {
+method:'POST', headers:{'Content-Type':'application/json'},
+body: JSON.stringify({stones:stones, next_player:nextPlayer, board_size:boardSize, komi:6.5, max_visits:analyzeVisits})
     }).then(function(r){return r.json();}).then(function(data){
         if (data.status==='ok' && data.recommendations) {
             analyzeResults = data.recommendations;
-            // 进入落子分析模式
-            analyzePlayMode = true;
             analyzeNextColor = nextPlayer;
             updatePlayModeIndicator();
             drawBoard();
@@ -1084,31 +1085,116 @@ function runAnalysis() {
 // 落子模式指示器
 // ==============================================================
 function updatePlayModeIndicator() {
-    var el = document.getElementById('play-mode-indicator');
-    var nextPlayerSection = document.getElementById('next-player-section');
-    if (analyzePlayMode) {
-        var colorName = analyzeNextColor === 'B' ? '黑' : '白';
-        var cls = analyzeNextColor === 'B' ? 'black' : 'white';
-        el.innerHTML = '<span class="play-mode-badge ' + cls + '">▶ 落子模式：轮到 ' + colorName + ' 走</span>';
-        nextPlayerSection.style.display = 'none';
-        // 落子模式下取消画笔选中
-        document.querySelectorAll('.brush-dot').forEach(function(d){d.classList.remove('sel');});
-    } else {
-        el.innerHTML = '<span style="font-size:0.82em;color:#f8d76b;">画笔修正模式（点完后切回「轮到谁走」落子）</span>';
-        nextPlayerSection.style.display = '';
-    }
+    // 同步 next-player 选择器
+    document.getElementById('next-player').value = analyzeNextColor;
 }
 
 function onNextPlayerChange() {
-    // 用户手动改变"轮到谁走"时，恢复落子模式
     analyzeNextColor = document.getElementById('next-player').value;
-    analyzePlayMode = true;
-    analyzeMoveHistory = [];
-    analyzeLastMove = null;
-    analyzeResults = [];
     updatePlayModeIndicator();
     drawBoard();
 }
+
+// ==============================================================
+// 一键截屏分析
+// ==============================================================
+function oneClickAnalyze() {
+    if (isAnalyzing) return;
+    
+    // 自动切换到分析 tab
+    if (currentTab !== 'analyze') {
+        document.querySelector('.tab-btn[data-tab="analyze"]').click();
+    }
+    
+    isAnalyzing = true;
+    document.getElementById('btn-screenshot').disabled = true;
+    document.getElementById('btn-analyze').disabled = true;
+    document.getElementById('analyze-status').innerHTML = '<span class="thinking">请框选棋盘区域... 截屏后自动识别分析</span>';
+    
+    var analyzeVisits = parseInt(document.getElementById('analyze-strength').value);
+    
+    fetch('/api/screenshot', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({board_size: boardSize, max_visits: analyzeVisits})
+    }).then(function(r){return r.json();}).then(function(data){
+        isAnalyzing = false;
+        document.getElementById('btn-screenshot').disabled = false;
+        document.getElementById('btn-analyze').disabled = false;
+        
+        if (data.status === 'cancelled') {
+            document.getElementById('analyze-status').innerHTML = '截屏已取消';
+            return;
+        }
+        if (data.status !== 'ok') {
+            document.getElementById('analyze-status').innerHTML = '错误: '+(data.message||data.error||'未知错误');
+            return;
+        }
+        
+        // 显示截图缩略图
+        if (data.image) {
+            var thumb = document.getElementById('paste-thumb');
+            thumb.src = 'data:image/png;base64,'+data.image;
+            thumb.style.display = 'block';
+            document.getElementById('paste-label').style.display = 'none';
+            document.getElementById('paste-hint').style.display = 'none';
+            document.getElementById('paste-zone').classList.add('has-img');
+        }
+        
+        // 填充棋盘
+        initAnalyzeBoardData();
+        analyzeMoveHistory = [];
+        analyzeMoveIndex = 0;
+        var stones = data.stones || [];
+        for (var i=0; i<stones.length; i++) {
+            var s = stones[i];
+            analyzeBoard[s.row][s.col] = (s.color==='B') ? 1 : 2;
+            analyzeBaseBoard[s.row][s.col] = (s.color==='B') ? 1 : 2;
+        }
+        
+        // 设置下一手颜色
+        var np = data.next_player || 'B';
+        analyzeNextColor = np;
+        document.getElementById('next-player').value = np;
+        
+        // 显示分析结果
+        analyzeResults = data.recommendations || [];
+        hoveredPVIndex = -1;
+        updateMoveIndexDisplay();
+        updatePlayModeIndicator();
+        updateStoneCount();
+        drawBoard();
+        
+        var sc = data.stone_count || {};
+        var html = '识别完成: 黑子 '+(sc.black||0)+' 枚, 白子 '+(sc.white||0)+' 枚<br>';
+        if (analyzeResults.length > 0) {
+            html += '<b>Top '+analyzeResults.length+' 推荐走法</b> (轮'+(np==='B'?'黑':'白')+'走)<br>';
+            for (var j=0; j<analyzeResults.length; j++) {
+                var rec = analyzeResults[j];
+                var sign = rec.scoreLead >= 0 ? '+' : '';
+                html += '<span style="color:'+RANK_COLORS[j]+'">&#9679;</span> ' +
+                    '<b>'+(j+1)+'. '+rec.move+'</b>  胜率 '+rec.winrate+'%  ' +
+                    '领先 '+sign+rec.scoreLead+'目  ('+rec.visits+'次模拟)<br>';
+            }
+        } else if (data.message) {
+            html += data.message;
+        }
+        html += '<br><span style="color:#888;font-size:0.8em">快捷键 Ctrl+Shift+A 一键截屏分析</span>';
+        document.getElementById('analyze-status').innerHTML = html;
+    }).catch(function(err){
+        isAnalyzing = false;
+        document.getElementById('btn-screenshot').disabled = false;
+        document.getElementById('btn-analyze').disabled = false;
+        document.getElementById('analyze-status').innerHTML = '截屏分析失败: '+err.message;
+    });
+}
+
+// 快捷键: Ctrl+Shift+A 触发一键截屏分析
+document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey && e.shiftKey && (e.key === 'A' || e.key === 'a')) {
+        e.preventDefault();
+        oneClickAnalyze();
+    }
+});
 
 // ==============================================================
 // 初始化

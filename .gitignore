@@ -5,3 +5,4 @@ __pycache__/
 analysis_logs/
 gtp_logs/
 grid_debug.png
+.DS_Store
