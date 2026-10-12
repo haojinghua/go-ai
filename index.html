@@ -31,10 +31,13 @@
         }
         .panel {
             background: #16213e; border-radius: 12px; padding: 20px;
-            min-width: 280px; max-width: 320px;
-            max-height: 620px; overflow-y: auto;
+            min-width: 340px; max-width: 640px;
             box-shadow: 0 4px 16px rgba(0,0,0,0.3);
         }
+        /* 两栏布局：设置区与按钮区（免滚动一屏展示全部功能） */
+        .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+        .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .btn-grid .btn { margin-bottom: 0; }
         .panel h3 { color: #e0d5b0; margin-bottom: 15px; font-size: 1.1em; }
         .btn {
             display: block; width: 100%; padding: 10px 16px; margin-bottom: 8px;
@@ -88,11 +91,90 @@
         .paste-zone.has-img { border-color: #2a9d6a; padding: 6px; }
         .paste-zone img { max-width: 100%; max-height: 120px; border-radius: 4px; }
         .paste-hint { font-size: 0.75em; margin-top: 4px; color: #555; }
+        /* 历史对局弹窗 */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+            z-index: 100; align-items: center; justify-content: center;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal {
+            background: #16213e; border-radius: 12px; padding: 20px; width: 420px;
+            max-height: 75vh; display: flex; flex-direction: column;
+            box-shadow: 0 12px 48px rgba(0,0,0,0.6);
+        }
+        .modal h3 { color: #e0d5b0; margin-bottom: 12px; }
+        .game-list { overflow-y: auto; flex: 1; }
+        .game-item {
+            display: flex; align-items: center; gap: 8px; padding: 10px;
+            border: 1px solid #2a2a4e; border-radius: 8px; margin-bottom: 8px;
+            font-size: 0.85em;
+        }
+        .game-item:hover { border-color: #4a90d9; }
+        .game-item .gi-info { flex: 1; line-height: 1.5; }
+        .game-item .gi-name { color: #e0d5b0; font-weight: 500; }
+        .game-item .gi-meta { color: #888; font-size: 0.9em; }
+        .game-item .gi-actions { display: flex; gap: 6px; }
+        .mini-btn {
+            padding: 5px 12px; border: none; border-radius: 5px; cursor: pointer;
+            font-size: 0.9em; font-weight: 500;
+        }
+        .mini-btn.load { background: #2a9d6a; color: white; }
+        .mini-btn.load:hover { background: #3ab; }
+        .mini-btn.del { background: #3a3a5c; color: #ccc; }
+        .mini-btn.del:hover { background: #d94a4a; color: white; }
+        /* 胜率曲线弹窗 */
+        .winrate-modal { width: 720px; }
+        .winrate-canvas-wrap { position: relative; }
+        #winrate-canvas { width: 100%; background: #0d1326; border-radius: 6px; cursor: crosshair; display: block; }
+        .wr-tip {
+            position: absolute; pointer-events: none; background: #1c2749; color: #e0e0e0;
+            padding: 6px 10px; border-radius: 6px; font-size: 0.78em; white-space: nowrap;
+            border: 1px solid #3a4a7a; display: none; z-index: 10;
+        }
+        .wr-legend { display: flex; gap: 16px; margin-top: 10px; font-size: 0.82em; color: #999; align-items: center; }
+        .wr-legend .sw { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin-right: 5px; }
     </style>
 </head>
 <body>
     <h1>围棋 AI 对弈 &amp; 分析</h1>
     <p style="margin-bottom:20px;color:#888;">KataGo 引擎 - 本地运行</p>
+
+    <!-- 历史对局弹窗 -->
+    <div class="modal-overlay" id="games-modal">
+        <div class="modal">
+            <h3>历史对局</h3>
+            <div class="game-list" id="game-list"></div>
+            <button class="btn btn-secondary" onclick="closeGamesModal()" style="margin-top:12px;">关闭</button>
+        </div>
+    </div>
+
+    <!-- AI 讲解弹窗 -->
+    <div class="modal-overlay" id="explain-modal">
+        <div class="modal" style="max-width:560px;">
+            <h3>💡 AI 局面讲解</h3>
+            <div id="explain-body" style="line-height:1.8;font-size:0.98em;overflow-y:auto;"></div>
+            <button class="btn btn-secondary" onclick="closeExplainModal()" style="margin-top:12px;align-self:flex-start;">关闭</button>
+        </div>
+    </div>
+
+    <!-- 胜率曲线弹窗 -->
+    <div class="modal-overlay" id="winrate-modal">
+        <div class="modal winrate-modal">
+            <h3>📈 全局胜率曲线</h3>
+            <div class="winrate-canvas-wrap">
+                <canvas id="winrate-canvas" width="680" height="320"></canvas>
+                <div class="wr-tip" id="wr-tip"></div>
+            </div>
+            <div class="wr-legend">
+                <span><span class="sw" style="background:#4a9d6a;"></span>胜率（黑方视角，%）</span>
+                <span><span class="sw" style="background:#d9a04a;"></span>目差</span>
+                <span style="margin-left:auto;">点击曲线跳转到对应局面</span>
+                <label style="cursor:pointer;color:#bbb;"><input type="checkbox" id="wr-show-score" onchange="drawWinrateChart()"> 显示目差</label>
+            </div>
+            <div style="margin-top:8px;font-size:0.82em;color:#888;" id="wr-summary"></div>
+            <button class="btn btn-secondary" onclick="closeWinrateModal()" style="margin-top:12px;align-self:flex-start;">关闭</button>
+        </div>
+    </div>
 
     <div class="container">
         <div class="board-wrapper">
@@ -107,33 +189,43 @@
 
             <!-- Play tab -->
             <div id="pane-play" class="tab-pane active">
-                <div class="settings">
-                    <label>棋盘大小</label>
-                    <select id="board-size">
-                        <option value="19" selected>19x19</option>
-                        <option value="13">13x13</option>
-                        <option value="9">9x9</option>
-                    </select>
-                    <label>你的颜色</label>
-                    <select id="player-color">
-                        <option value="B" selected>黑棋(先手)</option>
-                        <option value="W">白棋(后手)</option>
-                    </select>
-                    <label>AI 强度</label>
-                    <select id="ai-strength">
-                        <option value="100">入门 (100 visits)</option>
-                        <option value="400">弱 (400 visits)</option>
-                        <option value="1600" selected>中等 (1600 visits)</option>
-                        <option value="5000">强 (5000 visits)</option>
-                        <option value="10000">最强 (10000 visits)</option>
-                    </select>
+                <div class="settings settings-grid">
+                    <div>
+                        <label>棋盘大小</label>
+                        <select id="board-size">
+                            <option value="19" selected>19x19</option>
+                            <option value="13">13x13</option>
+                            <option value="9">9x9</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>你的颜色</label>
+                        <select id="player-color">
+                            <option value="B" selected>黑棋(先手)</option>
+                            <option value="W">白棋(后手)</option>
+                        </select>
+                    </div>
+                    <div style="grid-column: span 2;">
+                        <label>AI 强度</label>
+                        <select id="ai-strength">
+                            <option value="100">入门 (100 visits)</option>
+                            <option value="400">弱 (400 visits)</option>
+                            <option value="1600" selected>中等 (1600 visits)</option>
+                            <option value="5000">强 (5000 visits)</option>
+                            <option value="10000">最强 (10000 visits)</option>
+                        </select>
+                    </div>
                 </div>
-                <button class="btn btn-primary" onclick="newGame()">新对局</button>
-                <button class="btn btn-secondary" onclick="undoMove()">悔棋</button>
-                <button class="btn btn-secondary" onclick="requestHint()">提示</button>
-                <button class="btn btn-secondary" onclick="passMove()">跳过 (Pass)</button>
-                <button class="btn btn-danger" onclick="resignGame()">认输</button>
-                <button class="btn btn-secondary" onclick="exportSGF()">导出棋谱 (SGF)</button>
+                <div class="btn-grid">
+                    <button class="btn btn-primary" onclick="newGame()">新对局</button>
+                    <button class="btn btn-secondary" onclick="undoMove()">悔棋</button>
+                    <button class="btn btn-secondary" onclick="requestHint()">提示</button>
+                    <button class="btn btn-secondary" onclick="passMove()">跳过 (Pass)</button>
+                    <button class="btn btn-danger" onclick="resignGame()">认输</button>
+                    <button class="btn btn-secondary" onclick="exportSGF()">导出棋谱 (SGF)</button>
+                    <button class="btn btn-secondary" onclick="saveCurrentGame()">保存对局</button>
+                    <button class="btn btn-secondary" onclick="showGamesModal()">历史对局</button>
+                </div>
                 <div class="status" id="status">点击「新对局」开始</div>
                 <div class="move-history" id="move-history"></div>
             </div>
@@ -155,27 +247,36 @@
                     <span class="info" id="stone-count" style="margin-left:auto;font-size:0.8em;color:#888;">黑 0 白 0</span>
                 </div>
 
-                <div class="settings" id="next-player-section">
-                    <label>轮到谁走</label>
-                    <select id="next-player" onchange="onNextPlayerChange()">
-                        <option value="B" selected>黑方</option>
-                        <option value="W">白方</option>
-                    </select>
-                    <label>AI 强度</label>
-                    <select id="analyze-strength">
-                        <option value="100">入门 (100 visits)</option>
-                        <option value="400">弱 (400 visits)</option>
-                        <option value="1600">中等 (1600 visits)</option>
-                        <option value="5000" selected>强 (5000 visits)</option>
-                        <option value="10000">最强 (10000 visits)</option>
-                    </select>
+                <div class="settings settings-grid" id="next-player-section">
+                    <div>
+                        <label>轮到谁走</label>
+                        <select id="next-player" onchange="onNextPlayerChange()">
+                            <option value="B" selected>黑方</option>
+                            <option value="W">白方</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>AI 强度</label>
+                        <select id="analyze-strength">
+                            <option value="100">入门 (100 visits)</option>
+                            <option value="400" selected>弱 (400 visits)</option>
+                            <option value="1600">中等 (1600 visits)</option>
+                            <option value="5000">强 (5000 visits)</option>
+                            <option value="10000">最强 (10000 visits)</option>
+                        </select>
+                    </div>
                 </div>
-                <button class="btn btn-success" onclick="runAnalysis()" id="btn-analyze">AI 分析</button>
-                <button class="btn btn-primary" onclick="oneClickAnalyze()" id="btn-screenshot" title="快捷键: Ctrl+Shift+A">⌘ 一键截屏分析</button>
-                <button class="btn btn-secondary" onclick="clearAnalyzeBoard()">清空棋盘</button>
+                <div class="btn-grid">
+                    <button class="btn btn-success" onclick="runAnalysis()" id="btn-analyze">AI 分析</button>
+                    <button class="btn btn-secondary" onclick="document.getElementById('sgf-upload').click()">导入 SGF 棋谱</button>
+                    <input type="file" id="sgf-upload" accept=".sgf,application/x-go-sgf,text/plain" style="display:none" onchange="handleSgfUpload(event)">
+                    <button class="btn btn-secondary" onclick="showWinrateChart()" id="btn-winrate" title="整局逐手胜率分析，点击曲线跳转局面">📈 胜率曲线</button>
+                    <button class="btn btn-secondary" onclick="explainPosition()" id="btn-explain" title="AI 用自然语言讲解当前局面：形势判断、推荐意图、下一步建议">💡 AI 讲解</button>
+                    <button class="btn btn-secondary" onclick="toggleGroupLife()" id="btn-grouplife" title="开启后点击棋盘上任意棋子，AI 判断该棋块是活是死，并给出急救要点（不落子）">❤️‍🩹 死活提示</button>
+                </div>
                 <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:0.85em;color:#aaa;cursor:pointer;">
-                    <input type="checkbox" id="show-move-numbers" checked onchange="toggleMoveNumbers(this.checked)"> 显示落子序号
-                </label>
+<input type="checkbox" id="show-move-numbers" onchange="toggleMoveNumbers(this.checked)"> 显示落子序号
+</label>
 
                 <div class="status" id="analyze-status">摆好局面后点击分析</div>
             </div>
@@ -209,8 +310,13 @@ var analyzeBaseBoard = [];    // 基础棋盘（图片识别或空板）
 var analyzeResults = [];
 var isAnalyzing = false;
 var hoveredPVIndex = -1; // 当前悬停的推荐走法索引（-1表示没有悬停）
-var showMoveNumbers = true; // 是否显示落子序号
+var pinnedPVIndex = -1;  // 点击固定的 PV 展开索引（-1表示没有固定；与 hover 互斥）
+// 辅助：清空固定 PV（分析重跑/局面变化/切 Tab/浏览手数时调用）
+function clearPinnedPV() { pinnedPVIndex = -1; }
+var PV_MAX_SHOW = 12;    // PV 变化图最多展示的手数
+var showMoveNumbers = false; // 是否显示落子序号（默认不显示）
 var analyzeNextColor = 'B';   // 分析模式下一手颜色
+var analyzeKomi = 6.5;        // 分析模式贴目（可由 SGF 导入覆盖）
 var analyzeLastMove = null;   // 分析模式最后一手位置
 var analyzeMoveHistory = [];  // 分析模式落子历史
 var analyzeMoveIndex = 0;     // 当前浏览位置（显示到第几手）
@@ -324,8 +430,9 @@ function drawBoard() {
     ctx.textAlign='left';
     for (var i=0;i<boardSize;i++) ctx.fillText(String(boardSize-i), margin+(boardSize-1)*cellSize+10, margin+i*cellSize+4);
 
-    // 棋子
-    for (var r=0;r<boardSize;r++) for (var c=0;c<boardSize;c++) if (brd[r]&&brd[r][c]!==0) drawStone(r,c,brd[r][c]);
+
+// 棋子
+for (var r=0;r<boardSize;r++) for (var c=0;c<boardSize;c++) if (brd[r]&&brd[r][c]!==0) drawStone(r,c,brd[r][c]);
 
     // 对弈: 最后一手标记
     if (currentTab==='play' && lastMove) {
@@ -340,6 +447,7 @@ function drawBoard() {
     if (currentTab==='analyze' && analyzeMoveIndex>0) {
         for (var mi=0; mi<analyzeMoveIndex; mi++) {
             var mv = analyzeMoveHistory[mi];
+            if (mv.pass) continue; // Pass 不绘制
             var mx = margin+mv.col*cellSize, my = margin+mv.row*cellSize;
             // 当前位置的最后一手加红圈
             if (mi === analyzeMoveIndex - 1) {
@@ -356,6 +464,35 @@ function drawBoard() {
             }
         }
         ctx.textBaseline = 'alphabetic';
+    }
+
+    // 分析: 复盘标注（疑问/失误/大失误/妙手的彩色小圆环，只在棋子仍在盘上时显示）
+    if (currentTab==='analyze') {
+        // 死活提示绘制：群体高亮 + 急救要点标记
+        if (groupLifeResult && groupLifeResult.groupRC) {
+            var ldCol = groupLifeResult.pending ? '#888' : (LD_COLOR[groupLifeResult.verdict]||'#888');
+            for (var gi=0;gi<groupLifeResult.groupRC.length;gi++) {
+                var grc = groupLifeResult.groupRC[gi];
+                var gx = margin+grc[1]*cellSize, gy = margin+grc[0]*cellSize;
+                ctx.beginPath(); ctx.arc(gx,gy,cellSize*0.62,0,Math.PI*2);
+                ctx.strokeStyle = ldCol; ctx.lineWidth = Math.max(2,cellSize*0.12);
+                if (groupLifeResult.pending) ctx.setLineDash([4,3]);
+                ctx.stroke(); ctx.setLineDash([]);
+            }
+            if (!groupLifeResult.pending && groupLifeResult.vitalRC) {
+                for (var vi=0;vi<groupLifeResult.vitalRC.length;vi++) {
+                    var vrc = groupLifeResult.vitalRC[vi].rc || groupLifeResult.vitalRC[vi];
+                    if (Array.isArray(vrc)) {
+                        var vx = margin+vrc[1]*cellSize, vy = margin+vrc[0]*cellSize;
+                        ctx.globalAlpha = 0.85;
+                        ctx.beginPath(); ctx.arc(vx,vy,cellSize*0.42,0,Math.PI*2);
+                        ctx.fillStyle = '#f8d76b'; ctx.fill();
+                        ctx.globalAlpha = 1;
+                        ctx.strokeStyle = '#3a2f00'; ctx.lineWidth = 1.5; ctx.stroke();
+                    }
+                }
+            }
+        }
     }
 
     // 对弈: 推荐走法 (红绿蓝)
@@ -380,8 +517,8 @@ function drawBoard() {
         }
     }
 
-    // 分析: Top 5 推荐（悬停 PV 推演时隐藏）
-    if (currentTab==='analyze' && analyzeResults.length>0 && hoveredPVIndex < 0) {
+    // 分析: Top 5 推荐（悬停/固定 PV 推演时隐藏序号圈，由 PV 展开图取代）
+    if (currentTab==='analyze' && analyzeResults.length>0 && hoveredPVIndex < 0 && pinnedPVIndex < 0) {
         for (var i=0;i<analyzeResults.length;i++) {
             var rec = analyzeResults[i];
             var pos = gtpToBoard(rec.move);
@@ -433,7 +570,10 @@ document.querySelectorAll('.tab-btn').forEach(function(btn) {
         document.querySelectorAll('.tab-pane').forEach(function(p){p.classList.remove('active');});
         this.classList.add('active');
         document.getElementById('pane-'+tab).classList.add('active');
+        if (tab !== 'analyze' && groupLifeOn) toggleGroupLife();
         analyzeResults = [];
+        hoveredPVIndex = -1;
+        clearPinnedPV();
         drawBoard();
     });
 });
@@ -450,15 +590,83 @@ canvas.addEventListener('click', function(e) {
     if (currentTab==='play') {
         handlePlayClick(row, col);
     } else {
+        // 局面分析：点击任意空位＝试下落子（黑白交替），推荐点也可直接点击试下；
+        // 变化图查看：悬停推荐点预览，点击状态栏推荐条目固定/切换/收起
         handleAnalyzeClick(row, col);
     }
 });
+
+// 固定展开变化图（由状态栏推荐条目点击触发）：固定 / 再点取消 / 点其他条目切换
+function togglePinnedPV(row, col) {
+    var idx = -1;
+    for (var i=0;i<analyzeResults.length;i++) {
+        var rp = gtpToBoard(analyzeResults[i].move);
+        if (rp && rp[0]===row && rp[1]===col) { idx = i; break; }
+    }
+    if (idx < 0) return;
+    // 点击当前已固定的项 → 取消；否则固定新项
+    pinnedPVIndex = (pinnedPVIndex === idx) ? -1 : idx;
+    hoveredPVIndex = -1;
+    drawBoard();
+    if (pinnedPVIndex >= 0) {
+        var pv = analyzeResults[pinnedPVIndex].pv || [];
+        if (pv.length === 0) {
+            document.getElementById('analyze-status').innerHTML += '<br><span style="color:#e57373">⚠ 该候选点无后续变化数据</span>';
+            return;
+        }
+        // 固定后立即绘制展开图（不等首次 mousemove）
+        drawPVOverlay({pvMoves: pv, nextPlayer: analyzeNextColor});
+        renderPvText(pinnedPVIndex);
+    } else {
+        renderAnalyzeStatusHtml();
+    }
+}
+
+// 重新渲染推荐列表（取消固定时恢复）；条目可点击固定展开变化图
+function renderAnalyzeStatusHtml() {
+    var html = '<b>Top '+analyzeResults.length+' 推荐走法</b> (轮'+(analyzeNextColor==='B'?'黑':'白')+'走)<br>';
+    for (var i=0;i<analyzeResults.length;i++) {
+        var rec = analyzeResults[i];
+        var sign = rec.scoreLead >= 0 ? '+' : '';
+        var rp = gtpToBoard(rec.move);
+        var open = (rp && rec.pv && rec.pv.length>0)
+            ? '<span style="cursor:pointer" onclick="togglePinnedPV('+rp[0]+','+rp[1]+')">'
+            : '<span>';
+        html += open + '<span style="color:'+RANK_COLORS[i]+'">&#9679;</span> ' +
+            '<b>'+(i+1)+'. '+rec.move+'</b>  胜率 '+rec.winrate+'%  ' +
+            '领先 '+sign+rec.scoreLead+'目  ('+rec.visits+'次模拟)</span><br>';
+    }
+    html += '<br><span style="color:#f8d76b">➔ 点击棋盘任意空位即可试下落子（黑白交替），再点「AI 分析」查看新局面推荐；点击推荐条目可展开/收起变化图</span>';
+    document.getElementById('analyze-status').innerHTML = html;
+}
+
+// 固定展开时的文字版变化序列
+function renderPvText(idx) {
+    var rec = analyzeResults[idx];
+    var pv = rec.pv || [];
+    var color = analyzeNextColor;
+    var seq = [];
+    for (var i=0;i<pv.length && i<PV_MAX_SHOW;i++) {
+        seq.push((color==='B'?'黑':'白')+':'+pv[i]);
+        color = (color==='B')?'W':'B';
+    }
+    var html = '<b>「'+rec.move+'」后续变化（前 '+seq.length+' 手，点击推荐条目收起）</b><br>' +
+        '<span style="color:'+RANK_COLORS[idx]+'">&#9679;</span> '+seq.join(' → ') +
+        (pv.length > PV_MAX_SHOW ? ' → …（共 '+pv.length+' 手）' : '');
+    document.getElementById('analyze-status').innerHTML = html;
+}
 
 canvas.addEventListener('mousemove', function(e) {
     var rect = canvas.getBoundingClientRect();
     var pos = pixelToBoard(e.clientX-rect.left, e.clientY-rect.top);
 
-    // 分析模式：检测是否悬停在推荐走法上，显示 PV 变化图
+    // 分析模式：检测是否悬停在推荐走法上，显示 PV 变化图（已固定展开时禁用悬停切换）
+    if (currentTab==='analyze' && pinnedPVIndex >= 0) {
+        // 已固定：重绘基础棋盘 + 固定的 PV 展开图，鼠标移动不切换
+        drawBoard();
+        drawPVOverlay({pvMoves: analyzeResults[pinnedPVIndex].pv || [], nextPlayer: analyzeNextColor});
+        return;
+    }
     if (currentTab==='analyze' && analyzeResults.length>0 && pos) {
         var foundIdx = -1;
         for (var i=0;i<analyzeResults.length;i++) {
@@ -516,7 +724,7 @@ canvas.addEventListener('mouseleave', function() {
 function drawPVOverlay(pvData) {
     var pvMoves = pvData.pvMoves;
     var currentColor = pvData.nextPlayer; // 第一手是 nextPlayer 的颜色
-    for (var i=0; i<pvMoves.length && i<10; i++) {
+    for (var i=0; i<pvMoves.length && i<PV_MAX_SHOW; i++) {
         var pos = gtpToBoard(pvMoves[i]);
         if (!pos) continue; // pass 等跳过
         var pr=pos[0], pc=pos[1];
@@ -655,7 +863,11 @@ function newGame() {
 
 function undoMove() {
     if (!gameActive||thinking||moveHistory.length<2) return;
-    fetch('/api/undo', {method:'POST'}).then(function(r){return r.json();}).then(function(data){
+    // keep = 保留的着法数：后端截断自己的历史后从空盘重放，与前端各自弹栈保持一致
+    fetch('/api/undo', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({keep: moveHistory.length - 2})
+    }).then(function(r){return r.json();}).then(function(data){
         if (data.status==='ok') {
             var saved = moveHistory.slice(0,-2);
             initPlayBoard();
@@ -713,14 +925,245 @@ function updateHistory() {
     for (var i=0;i<moveHistory.length;i++) html += '<div>'+(i+1)+'. '+moveHistory[i]+'</div>';
     el.innerHTML = html;
     el.scrollTop = el.scrollHeight;
+    autoSaveGame();
+}
+
+// ==============================================================
+// 对局保存与载入（localStorage）
+// ==============================================================
+var SAVE_KEY = 'goai_saved_games';
+var SAVE_MAX = 50;
+
+function getSavedGames() {
+    try {
+        var raw = localStorage.getItem(SAVE_KEY);
+        var list = raw ? JSON.parse(raw) : [];
+        return (Array.isArray(list)) ? list : [];
+    } catch (e) { return []; }
+}
+
+function putSavedGames(list) {
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(list)); return true; }
+    catch (e) { return false; }
+}
+
+// 构造当前对局的存档记录（不写入）
+function buildGameRecord(autosave) {
+    return {
+        id: 'g' + Date.now() + Math.floor(Math.random()*1000),
+        ts: Date.now(),
+        autosave: !!autosave,
+        name: null, // 保存时生成
+        board_size: boardSize,
+        komi: 6.5,
+        player_color: playerColor,
+        ai_strength: document.getElementById('ai-strength') ? parseInt(document.getElementById('ai-strength').value) : 1600,
+        moves: moveHistory.slice()
+    };
+}
+
+// 每手棋后自动保存（单一 autosave 槽，刷新页面可恢复）
+function autoSaveGame() {
+    if (!gameActive || moveHistory.length === 0) return;
+    var rec = buildGameRecord(true);
+    rec.name = '⏺ 当前对局（自动保存）';
+    var list = getSavedGames();
+    list = list.filter(function(r){ return !r.autosave; });
+    list.unshift(rec);
+    putSavedGames(list);
+}
+
+function saveCurrentGame() {
+    if (moveHistory.length === 0) {
+        alert('还没有落子，无需保存');
+        return;
+    }
+    var rec = buildGameRecord(false);
+    var d = new Date();
+    var ts = d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);
+    rec.name = ts+' '+boardSize+'路 '+(playerColor==='B'?'执黑':'执白')+' '+moveHistory.length+'手';
+    var list = getSavedGames();
+    var manual = list.filter(function(r){ return !r.autosave; });
+    var autos = list.filter(function(r){ return r.autosave; });
+    manual.unshift(rec);
+    if (manual.length > SAVE_MAX) manual = manual.slice(0, SAVE_MAX);
+    var ok = putSavedGames(manual.concat(autos));
+    if (ok) {
+        document.getElementById('status').innerHTML = '已保存对局「'+rec.name+'」，可在「历史对局」中载入';
+    } else {
+        document.getElementById('status').innerHTML = '保存失败（浏览器存储不可用）';
+    }
+}
+
+function showGamesModal() {
+    renderGameList();
+    document.getElementById('games-modal').classList.add('open');
+}
+function closeGamesModal() {
+    document.getElementById('games-modal').classList.remove('open');
+}
+
+function renderGameList() {
+    var el = document.getElementById('game-list');
+    var list = getSavedGames();
+    if (list.length === 0) {
+        el.innerHTML = '<div style="color:#666;text-align:center;padding:30px;">暂无保存的对局<br>对弈中点击「保存对局」或落子后自动保存</div>';
+        return;
+    }
+    var html = '';
+    for (var i=0;i<list.length;i++) {
+        var r = list[i];
+        var d = new Date(r.ts);
+        var time = d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2)+' '+('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2);
+        var meta = r.board_size+'路 · '+(r.player_color==='B'?'执黑':'执白')+' · '+r.moves.length+'手 · '+time;
+        html += '<div class="game-item">'+
+            '<div class="gi-info"><div class="gi-name">'+(r.name||'未命名对局')+'</div><div class="gi-meta">'+meta+'</div></div>'+
+            '<div class="gi-actions">'+
+            '<button class="mini-btn load" onclick="loadSavedGame(\''+r.id+'\')">载入</button>'+
+            '<button class="mini-btn del" onclick="deleteSavedGame(\''+r.id+'\')">删除</button>'+
+            '</div></div>';
+    }
+    el.innerHTML = html;
+}
+
+function deleteSavedGame(id) {
+    var list = getSavedGames();
+    var target = null;
+    for (var i=0;i<list.length;i++) if (list[i].id===id) { target = list[i]; break; }
+    if (!target) return;
+    // autosave 槽正在被当前对局使用，删除时同步结束对局
+    if (target.autosave && gameActive && target.moves.length>0 && target.moves.length===moveHistory.length
+        && target.player_color===playerColor && target.board_size===boardSize) {
+        if (!confirm('这是当前对局的自动保存，删除将无法恢复，确定？')) return;
+        gameActive = false;
+        document.getElementById('status').innerHTML = '当前对局已结束（自动保存被删除）';
+    }
+    list = list.filter(function(r){ return r.id !== id; });
+    putSavedGames(list);
+    renderGameList();
+}
+
+// 把 "B: D4" 字符串历史转为 [["B","D4"],...] 供后端重放
+function historyToMoveList(hist) {
+    var out = [];
+    for (var i=0;i<hist.length;i++) {
+        var parts = hist[i].split(': ');
+        if (parts.length !== 2) continue;
+        var m = parts[1];
+        if (m.toLowerCase()==='pass') { out.push([parts[0], 'pass']); continue; }
+        if (m.toLowerCase()==='resign') continue; // 终局标记不重放
+        out.push([parts[0], m]);
+    }
+    return out;
+}
+
+function loadSavedGame(id) {
+    if (thinking) { alert('AI 思考中，请稍候'); return; }
+    var rec = null;
+    var list = getSavedGames();
+    for (var i=0;i<list.length;i++) if (list[i].id===id) { rec = list[i]; break; }
+    if (!rec) { renderGameList(); return; }
+
+    // 同步 UI 设置
+    document.getElementById('board-size').value = String(rec.board_size);
+    document.getElementById('player-color').value = rec.player_color;
+    if (rec.ai_strength) document.getElementById('ai-strength').value = String(rec.ai_strength);
+    boardSize = rec.board_size;
+    playerColor = rec.player_color;
+    aiColor = playerColor==='B' ? 'W' : 'B';
+
+    document.getElementById('status').innerHTML = '<span class="thinking">正在载入对局...</span>';
+    var moveList = historyToMoveList(rec.moves);
+
+    fetch('/api/load_game', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({board_size:rec.board_size, komi:rec.komi||6.5, max_visits:rec.ai_strength||1600, moves:moveList})
+    }).then(function(r){return r.json();}).then(function(data){
+        if (data.status !== 'ok') {
+            document.getElementById('status').innerHTML = '载入失败: '+(data.message||'未知错误');
+            return;
+        }
+        applyLoadedGame(rec);
+        closeGamesModal();
+    }).catch(function(err){
+        document.getElementById('status').innerHTML = '载入请求失败: '+err.message;
+    });
+}
+
+function applyLoadedGame(rec) {
+    // 前端重建棋盘与历史
+    initPlayBoard();
+    var saved = rec.moves.slice();
+    for (var i=0;i<saved.length;i++) {
+        var parts = saved[i].split(': ');
+        if (parts.length !== 2) continue;
+        var m = parts[1];
+        if (m.toLowerCase()==='resign') { moveHistory.push(saved[i]); continue; }
+        if (m.toLowerCase()!=='pass') {
+            var p = gtpToBoard(m);
+            if (p) { var cn = parts[0]==='B'?1:2; board[p[0]][p[1]]=cn; removeCaptures(p[0],p[1],cn,board); lastMove=p; }
+        }
+        moveHistory.push(saved[i]);
+    }
+    // 含 Resign 的存档：对局已结束，不再激活
+    var endedWithResign = moveHistory.length>0 && /: Resign$/i.test(moveHistory[moveHistory.length-1]);
+    gameActive = !endedWithResign;
+    drawBoard();
+
+    // 同步分析模式棋盘：完整历史（含提子重放）可供复盘
+    analyzeBoard = [];
+    analyzeBaseBoard = [];
+    for (var r=0;r<boardSize;r++){analyzeBoard[r]=[];analyzeBaseBoard[r]=[];for(var c=0;c<boardSize;c++){analyzeBoard[r][c]=0;analyzeBaseBoard[r][c]=0;}}
+    analyzeMoveHistory = [];
+    for (var j=0;j<moveHistory.length;j++) {
+        var pr = moveHistory[j].split(': ');
+        if (pr.length!==2 || pr[1].toLowerCase()==='pass' || pr[1].toLowerCase()==='resign') continue;
+        var rc = gtpToBoard(pr[1]);
+        if (!rc) continue;
+        var acn2 = pr[0]==='B' ? 1 : 2;
+        analyzeBoard[rc[0]][rc[1]] = acn2;
+        var cap = removeCaptures(rc[0], rc[1], acn2, analyzeBoard);
+        analyzeMoveHistory.push({row:rc[0], col:rc[1], color:acn2, captured:cap});
+    }
+    analyzeMoveIndex = 0;
+    updateMoveIndexDisplay();
+
+    // 判断轮到谁
+    var lastColor = null;
+    for (var k=moveHistory.length-1;k>=0;k--) {
+        var pp = moveHistory[k].split(': ');
+        if (pp.length===2) { lastColor = pp[0]; break; }
+    }
+    var nextColor = lastColor ? (lastColor==='B'?'W':'B') : 'B';
+
+    if (!gameActive) {
+        document.getElementById('status').innerHTML = '已载入「'+(rec.name||'对局')+'」'+moveHistory.length+'手，该对局已结束（Resign），仅供复盘';
+    } else if (nextColor === playerColor) {
+        document.getElementById('status').innerHTML = '已载入「'+(rec.name||'对局')+'」'+moveHistory.length+'手，轮到你落子';
+    } else {
+        document.getElementById('status').innerHTML = '<span class="thinking">已载入对局，AI 思考中...</span>';
+        thinking = true;
+        fetch('/api/ai_move', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({color:aiColor})
+        }).then(function(r){return r.json();}).then(function(d){
+            if (d.status==='ok' && d.ai_move) {
+                var ap = gtpToBoard(d.ai_move);
+                if (ap) { var acn=aiColor==='B'?1:2; board[ap[0]][ap[1]]=acn; removeCaptures(ap[0],ap[1],acn,board); lastMove=ap; moveHistory.push(aiColor+': '+d.ai_move); drawBoard(); updateHistory(); }
+                document.getElementById('status').innerHTML = '已载入对局，AI 落子: '+d.ai_move+'，轮到你';
+            }
+            thinking = false;
+        }).catch(function(){ thinking = false; });
+    }
+    updateHistory();
 }
 
 // ==============================================================
 // 切换落子序号显示
 // ==============================================================
 function toggleMoveNumbers(checked) {
-    showMoveNumbers = checked;
-    drawBoard();
+showMoveNumbers = checked;
+drawBoard();
 }
 
 // ==============================================================
@@ -781,9 +1224,22 @@ function fetchPlayRecommendations() {
     }
     if (stones.length===0) return;
 
+    // 从 moveHistory 构造 move_history 序列（按实际下棋顺序）
+    var moveHistoryList = [];
+    for (var i=0; i<moveHistory.length; i++) {
+        var parts = moveHistory[i].split(': ');
+        var color = parts[0];
+        var move = parts[1];
+        if (move && move.toLowerCase() !== 'pass' && move.toLowerCase() !== 'resign') {
+            moveHistoryList.push([color, move]);
+        } else if (move && move.toLowerCase() === 'pass') {
+            moveHistoryList.push([color, 'pass']);
+        }
+    }
+
     fetch('/api/analyze', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({stones:stones, next_player:playerColor, board_size:boardSize, komi:6.5})
+        body: JSON.stringify({stones:stones, next_player:playerColor, board_size:boardSize, komi:6.5, max_visits:800, move_history:moveHistoryList})
     }).then(function(r){return r.json();}).then(function(data){
         if (data.status==='ok' && data.recommendations) {
             playRecommendations = data.recommendations.slice(0, 3);
@@ -806,7 +1262,420 @@ function fetchPlayRecommendations() {
 }
 
 // ==============================================================
-// 分析逻辑
+// SGF 棋谱导入
+// ==============================================================
+function handleSgfUpload(e) {
+    var file = e.target.files[0];
+    if (file) importSgfFile(file);
+    e.target.value = '';
+}
+
+function importSgfFile(file) {
+    document.getElementById('analyze-status').innerHTML = '<span class="thinking">正在解析 SGF 棋谱...</span>';
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+        importSgfText(ev.target.result, file.name);
+    };
+    reader.readAsText(file);
+}
+
+function importSgfText(sgfText, filename) {
+    fetch('/api/import_sgf', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({sgf: sgfText})
+    }).then(function(r){return r.json();}).then(function(data){
+        if (data.status !== 'ok') {
+            document.getElementById('analyze-status').innerHTML = '导入失败: '+(data.message||'未知错误');
+            return;
+        }
+        applyImportedSgf(data, filename);
+    }).catch(function(err){
+        document.getElementById('analyze-status').innerHTML = '导入请求失败: '+err.message;
+    });
+}
+
+function applyImportedSgf(data, filename) {
+    // 切换棋盘大小并初始化分析棋盘
+    boardSize = data.board_size;
+    initAnalyzeBoardData();
+    analyzeKomi = (typeof data.komi === 'number') ? data.komi : 6.5;
+    // 摆子 AB/AW → 基础棋盘 + 当前棋盘（摆子必须先就位，后续着法的提子才能正确计算）
+    var setup = data.setup_stones || [];
+    for (var i=0;i<setup.length;i++) {
+        var p = gtpToBoard(setup[i][1]);
+        if (p) {
+            analyzeBaseBoard[p[0]][p[1]] = (setup[i][0]==='B') ? 1 : 2;
+            analyzeBoard[p[0]][p[1]] = (setup[i][0]==='B') ? 1 : 2;
+        }
+    }
+    // 主线着法 → 历史记录（含提子模拟）
+    var moves = data.moves || [];
+    var passCount = 0;
+    for (var j=0;j<moves.length;j++) {
+        var color = moves[j][0];
+        var cn = color==='B' ? 1 : 2;
+        var mv = {color: cn, pass: false};
+        if (moves[j][1] === 'pass') {
+            mv.pass = true;
+            passCount++;
+        } else {
+            var rc = gtpToBoard(moves[j][1]);
+            if (!rc) continue;
+            analyzeBoard[rc[0]][rc[1]] = cn;
+            mv.row = rc[0]; mv.col = rc[1];
+            mv.captured = removeCaptures(rc[0], rc[1], cn, analyzeBoard);
+        }
+        analyzeMoveHistory.push(mv);
+    }
+    analyzeMoveIndex = analyzeMoveHistory.length;
+    rebuildAnalyzeBoard();
+    // 下一手颜色
+    if (analyzeMoveHistory.length > 0) {
+        var lastColor = analyzeMoveHistory[analyzeMoveHistory.length-1].color;
+        analyzeNextColor = (lastColor === 1) ? 'W' : 'B';
+    } else {
+        inferNextPlayer();
+    }
+    document.getElementById('next-player').value = analyzeNextColor;
+    updateMoveIndexDisplay();
+    updateStoneCount();
+    updatePlayModeIndicator();
+    drawBoard();
+
+    // 状态信息
+    var meta = data.meta || {};
+    var html = '<b>已导入'+(filename?('「'+filename+'」'):'')+'</b><br>';
+    if (meta.PB || meta.PW) html += (meta.PB||'黑')+' (黑) vs '+(meta.PW||'白')+' (白)<br>';
+    html += data.board_size+'路棋盘, 贴目 '+data.komi+', 共 '+data.move_count+' 手';
+    if (setup.length>0) html += ', 摆子 '+setup.length+' 枚';
+    if (passCount>0) html += '（含 '+passCount+' 手 Pass）';
+    if (meta.RE) html += '<br>结果: '+meta.RE;
+    if (meta.DT) html += '&nbsp;日期: '+meta.DT;
+    if (meta.EV) html += '<br>赛事: '+meta.EV;
+    html += '<br><span style="color:#f8d76b">⬅ ➡ 浏览每一手，点击「AI 分析」查看任意局面的推荐</span>';
+    document.getElementById('analyze-status').innerHTML = html;
+}
+
+// ============================================================== 
+// 死活提示（Life & Death）
+// ==============================================================
+var groupLifeOn = false;
+var groupLifeResult = null;  // {group:[r,c]数组, verdict, liberties, ...}
+var LD_TXT = {alive:'✔ 安然无恙（活棋）', critical:'⚠ 生死攸关（未活净）', dead:'✘ 大势已去（死棋）'};
+var LD_COLOR = {alive:'#4a9d6a', critical:'#c9a227', dead:'#d94a4a'};
+
+function toggleGroupLife() {
+    groupLifeOn = !groupLifeOn;
+    var btn = document.getElementById('btn-grouplife');
+    if (groupLifeOn) {
+        btn.textContent = '❤️‍🩹 死活中…点击棋子查询';
+        btn.style.background = '#d9772a';
+        btn.style.color = '#fff';
+        document.getElementById('analyze-status').innerHTML = '<span style="color:#d9772a;">死活提示已开启：点击棋盘上任意棋子，AI 会判断该棋块（连同连通的己方棋子）是活是死、有几口气，并给出急救要点（不会落子）</span>';
+    } else {
+        btn.textContent = '❤️‍🩹 死活提示';
+        btn.style.background = '';
+        btn.style.color = '';
+        groupLifeResult = null;
+        drawBoard();
+        document.getElementById('analyze-status').innerHTML = '死活提示已关闭';
+    }
+}
+
+function groupLifeClick(row, col) {
+    if (thinking) return;
+    // 只允许点在棋子上
+    if (!analyzeBoard[row] || analyzeBoard[row][col]===0) {
+        document.getElementById('analyze-status').innerHTML = '<span style="color:#e57373;">请点击棋盘上的一颗棋子（死活提示针对棋块）</span>';
+        return;
+    }
+    var gtp = COLS[col]+String(boardSize-row);
+    var color = analyzeNextColor;
+    var snap = buildAnalyzeSnapshot();
+    groupLifeResult = {pending:true, group:[[row,col]]};
+    drawBoard();
+    var tok = analyzeStatusBegin();
+    analyzeStatusSet(tok, '<span class="thinking">正在评估 '+gtp+' 所在棋块的死活...</span>');
+    fetch('/api/group_life', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({stones:snap.stones, setup_stones:snap.setup_stones, next_player:color, target:gtp, move_history:snap.move_history, board_size:boardSize, komi:analyzeKomi, max_visits:400})
+    }).then(function(r){return r.json();}).then(function(data){
+        if (tok !== analyzeStatusCurrent()) return; // 过期响应：忽略，不碰棋盘与状态栏
+        if (data.status !== 'ok') {
+            groupLifeResult = null;
+            drawBoard();
+            analyzeStatusSet(tok, '死活评估失败: '+(data.message||'未知错误'));
+            return;
+        }
+        // GTP 坐标转回棋盘行列
+        var grp = [];
+        for (var i=0;i<data.group.length;i++) {
+            var rc = gtpToBoard(data.group[i]);
+            if (rc) grp.push(rc);
+        }
+        data.groupRC = grp;
+        var vpts = [];
+        for (var j=0;j<(data.vital_points||[]).length;j++) {
+            var vrc = gtpToBoard(data.vital_points[j].move);
+            if (vrc) { data.vital_points[j].rc = vrc; vpts.push(data.vital_points[j]); }
+        }
+        data.vitalRC = vpts;
+        groupLifeResult = data;
+        drawBoard();
+        var colorName = data.color==='B'?'黑':'白';
+        var libWarn = data.liberties<=1 ? ' <span style="color:#d94a4a;font-weight:bold;">（仅剩 '+data.liberties+' 口气，随时会被提！）</span>' : '，'+data.liberties+' 口气';
+        var html = '<span style="color:'+LD_COLOR[data.verdict]+';font-weight:bold;">'+LD_TXT[data.verdict]+'</span> '+colorName+'棋块（'+data.group_size+' 子'+libWarn+'，存活度 '+Math.round(data.survival*100)+'%）';
+        if (vpts.length>0) {
+            html += '<br>急救要点：';
+            for (var k=0;k<vpts.length;k++) {
+                html += ' <b style="color:#f8d76b;">'+vpts[k].move+'</b>'+(vpts[k].pv&&vpts[k].pv.length>0?'（'+vpts[k].pv.slice(0,3).join(' → ')+'…）':'');
+            }
+        } else if (data.recommended) {
+            html += '<br>急救要点：暂无近距离要点，引擎全局推荐 '+data.recommended;
+        }
+        if (data.verdict==='dead') html += '<br><span style="color:#888;font-size:0.92em;">提示：死棋可考虑脱先弃子，或全局推荐 '+data.recommended+'</span>';
+        else if (data.verdict==='critical') html += '<br><span style="color:#888;font-size:0.92em;">提示：先手补活/加护要点已用黄色标出</span>';
+        analyzeStatusSet(tok, html);
+    }).catch(function(err){
+        if (tok !== analyzeStatusCurrent()) return;
+        groupLifeResult = null;
+        drawBoard();
+        analyzeStatusSet(tok, '死活评估请求失败: '+err.message);
+    });
+}
+
+// ==============================================================
+// AI 讲解
+// ==============================================================
+function explainPosition() {
+    var btn = document.getElementById('btn-explain');
+    if (isAnalyzing) return;
+    var snap = buildAnalyzeSnapshot();
+    if (snap.stones.length===0) {
+        document.getElementById('analyze-status').innerHTML = '棋盘为空：请先摆子、导入棋谱或从对局载入，再点「AI 讲解」';
+        return;
+    }
+    btn.disabled = true;
+    btn.textContent = '💡 讲解中…';
+    var tok = analyzeStatusBegin();
+    analyzeStatusSet(tok, '<span class="thinking">AI 正在思考如何给你讲解这个局面…</span>');
+    fetch('/api/explain', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({stones:snap.stones, setup_stones:snap.setup_stones, next_player:analyzeNextColor, move_history:snap.move_history, board_size:boardSize, komi:analyzeKomi, max_visits:400})
+    }).then(function(r){return r.json();}).then(function(data){
+        btn.disabled = false;
+        btn.textContent = '💡 AI 讲解';
+        if (tok !== analyzeStatusCurrent()) return; // 过期响应：不弹窗、不覆盖状态栏
+        if (data.status !== 'ok') {
+            analyzeStatusSet(tok, '讲解生成失败: '+(data.message||'未知错误'));
+            return;
+        }
+        var modeTag = data.mode==='llm' ? '<span style="color:#8a5cf5;">[LLM 大模型讲解]</span>' : '<span style="color:#4a9d6a;">[AI 智能讲解]</span>';
+        var html = modeTag + '<br><br>' + data.explanation.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
+        html += '<br><br><span style="color:#888;font-size:0.9em;">首推 '+data.best_move+'（胜率 '+data.winrate+'%，目差 '+data.score_lead+'），耗时 '+data.elapsed+' 秒</span>';
+        document.getElementById('explain-body').innerHTML = html;
+        document.getElementById('explain-modal').classList.add('open');
+        analyzeStatusSet(tok, 'AI 讲解已生成（首推 '+data.best_move+'）：点击「AI 讲解」可再次查看弹窗，或重新分析更新讲解');
+        // 记住最近讲解供重看
+        lastExplanation = data;
+    }).catch(function(err){
+        btn.disabled = false;
+        btn.textContent = '💡 AI 讲解';
+        if (tok !== analyzeStatusCurrent()) return;
+        analyzeStatusSet(tok, '讲解请求失败: '+err.message);
+    });
+}
+var lastExplanation = null;
+
+function closeExplainModal() {
+    document.getElementById('explain-modal').classList.remove('open');
+}
+
+// ==============================================================
+// 全局胜率曲线图
+// ==============================================================
+var wrPoints = null;      // [{turn,winrate,scoreLead},...]
+var wrGeom = null;       // 绘图几何信息（用于点击/悬停定位）
+
+function showWinrateChart() {
+    // 需要：基础棋盘无摆子 + 有着法历史（分析整局用 moves 路径）
+    var baseHasStones = false;
+    for (var br=0;br<boardSize;br++) for (var bc=0;bc<boardSize;bc++) { if (analyzeBaseBoard[br][bc]!==0) { baseHasStones=true; } }
+    if (baseHasStones) {
+        document.getElementById('analyze-status').innerHTML = '胜率曲线需要完整下棋顺序（当前棋盘含无顺序摆子，如截图识别），请先导入棋谱或从对局载入';
+        return;
+    }
+    if (analyzeMoveHistory.length < 2) {
+        document.getElementById('analyze-status').innerHTML = '至少需要 2 手棋才能绘制胜率曲线';
+        return;
+    }
+    // 构造 move_history（当前历史全部，不限浏览位置：曲线是整局的）
+    var mh = [];
+    for (var i=0;i<analyzeMoveHistory.length;i++) {
+        var mv = analyzeMoveHistory[i];
+        var cl = mv.color===1?'B':'W';
+        if (mv.pass) mh.push([cl,'pass']);
+        else mh.push([cl, COLS[mv.col]+String(boardSize-mv.row)]);
+    }
+    // 长对局自动降 visits 平衡耗时：>60 手用 60 visits，>120 手用 40 visits（每手约 0.8-1.5s）
+    var vis = 100;
+    if (mh.length > 120) vis = 40; else if (mh.length > 60) vis = 60;
+    var tok = analyzeStatusBegin();
+    analyzeStatusSet(tok, '<span class="thinking">正在整局分析（'+mh.length+' 手，约需 '+Math.round(mh.length*1.5)+' 秒）...</span>');
+    document.getElementById('btn-analyze').disabled = true;
+    var wrBtn = document.getElementById('btn-winrate');
+    if (wrBtn) wrBtn.disabled = true;
+    fetch('/api/analyze_game', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({move_history:mh, board_size:boardSize, komi:analyzeKomi, max_visits:vis})
+    }).then(function(r){return r.json();}).then(function(data){
+        document.getElementById('btn-analyze').disabled = false;
+        if (wrBtn) wrBtn.disabled = false;
+        if (tok !== analyzeStatusCurrent()) return; // 过期响应：忽略
+        if (data.status !== 'ok') {
+            analyzeStatusSet(tok, '整局分析失败: '+(data.message||'未知错误'));
+            return;
+        }
+        wrPoints = data.points;
+        analyzeStatusSet(tok, '整局分析完成（'+data.turn_count+' 手，耗时 '+data.elapsed+' 秒），胜率曲线已打开');
+        document.getElementById('wr-summary').innerHTML = '黑方初始胜率 '+(wrPoints[0]?wrPoints[0].winrate:'—')+'%，终局 '+(wrPoints[wrPoints.length-1]?wrPoints[wrPoints.length-1].winrate:'—')+'% · 黑棋视角 · 中国规则';
+        drawWinrateChart();
+        document.getElementById('winrate-modal').classList.add('open');
+    }).catch(function(err){
+        document.getElementById('btn-analyze').disabled = false;
+        if (wrBtn) wrBtn.disabled = false;
+        if (tok !== analyzeStatusCurrent()) return;
+        analyzeStatusSet(tok, '整局分析请求失败: '+err.message);
+    });
+}
+
+function closeWinrateModal() {
+    document.getElementById('winrate-modal').classList.remove('open');
+}
+
+function drawWinrateChart() {
+    if (!wrPoints) return;
+    var cv = document.getElementById('winrate-canvas');
+    var ctx = cv.getContext('2d');
+    var W = cv.width, H = cv.height;
+    var padL = 44, padR = 14, padT = 14, padB = 30;
+    var pw = W-padL-padR, ph = H-padT-padB;
+    var n = wrPoints.length;
+    var maxTurn = wrPoints[n-1].turn;
+    var showScore = document.getElementById('wr-show-score').checked;
+    // 目差轴范围
+    var sMin = 0, sMax = 0;
+    if (showScore) {
+        for (var i=0;i<n;i++) { if (wrPoints[i].scoreLead<sMin) sMin=wrPoints[i].scoreLead; if (wrPoints[i].scoreLead>sMax) sMax=wrPoints[i].scoreLead; }
+        sMax = Math.max(sMax, 5); sMin = Math.min(sMin, -5);
+    }
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle = '#0d1326'; ctx.fillRect(0,0,W,H);
+    var xOf = function(turn) { return padL + (turn-1)/(maxTurn-1||1)*pw; };
+    var yOf = function(wr) { return padT + (1-wr/100)*ph; };
+    var yOfS = function(s) { return padT + (1-(s-sMin)/(sMax-sMin))*ph; };
+
+    // 网格与刻度（胜率 0/25/50/75/100）
+    ctx.strokeStyle = '#1e2a4a'; ctx.lineWidth = 1;
+    ctx.fillStyle = '#667'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+    [0,25,50,75,100].forEach(function(w) {
+        var y = yOf(w);
+        ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+        ctx.fillText(w+'%', padL-6, y+3);
+    });
+    // 50% 参考线加亮
+    ctx.strokeStyle = '#3a4a7a';
+    ctx.beginPath(); ctx.moveTo(padL,yOf(50)); ctx.lineTo(W-padR,yOf(50)); ctx.stroke();
+
+    // x 轴刻度（手数，最多 10 个）
+    ctx.textAlign = 'center';
+    var step = Math.max(1, Math.ceil(maxTurn/10));
+    for (var t=1;t<=maxTurn;t+=step) { ctx.fillText(t, xOf(t), H-8); }
+
+    // 目差曲线（可选）
+    if (showScore) {
+        ctx.strokeStyle = '#d9a04a'; ctx.lineWidth = 1.5; ctx.beginPath();
+        for (var j=0;j<n;j++) {
+            var x = xOf(wrPoints[j].turn), y = yOfS(wrPoints[j].scoreLead);
+            if (j===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        }
+        ctx.stroke();
+        // 0 目线
+        ctx.strokeStyle = 'rgba(217,160,74,0.25)';
+        ctx.beginPath(); ctx.moveTo(padL,yOfS(0)); ctx.lineTo(W-padR,yOfS(0)); ctx.stroke();
+    }
+
+    // 胜率主曲线
+    ctx.strokeStyle = '#4a9d6a'; ctx.lineWidth = 2; ctx.beginPath();
+    for (var k=0;k<n;k++) {
+        var xx = xOf(wrPoints[k].turn), yy = yOf(wrPoints[k].winrate);
+        if (k===0) ctx.moveTo(xx,yy); else ctx.lineTo(xx,yy);
+    }
+    ctx.stroke();
+    // 胜率下万填充
+    ctx.lineTo(xOf(maxTurn),yOf(0)); ctx.lineTo(xOf(1),yOf(0)); ctx.closePath();
+    ctx.fillStyle = 'rgba(74,157,106,0.08)'; ctx.fill();
+
+    // 当前浏览位置标记
+    var curTurn = analyzeMoveIndex;
+    if (curTurn >= 1 && curTurn <= maxTurn) {
+        var cx = xOf(curTurn);
+        var pt = null;
+        for (var m=0;m<n;m++) if (wrPoints[m].turn===curTurn) { pt = wrPoints[m]; break; }
+        if (pt) {
+            ctx.fillStyle = '#e0d5b0';
+            ctx.beginPath(); ctx.arc(cx, yOf(pt.winrate), 4, 0, Math.PI*2); ctx.fill();
+            ctx.strokeStyle = '#e0d5b0'; ctx.setLineDash([3,3]);
+            ctx.beginPath(); ctx.moveTo(cx,padT); ctx.lineTo(cx,H-padB); ctx.stroke();
+            ctx.setLineDash([]);
+        }
+    }
+
+    wrGeom = {padL:padL, pw:pw, maxTurn:maxTurn};
+}
+
+// 悬停提示 + 点击跳转
+(function(){
+    var cv = document.getElementById('winrate-canvas');
+    if (!cv) return;
+    var locate = function(e) {
+        if (!wrPoints || !wrGeom) return null;
+        var rect = cv.getBoundingClientRect();
+        var x = (e.clientX-rect.left) * (cv.width/rect.width);
+        var turn = Math.round(1 + (x-wrGeom.padL)/wrGeom.pw*(wrGeom.maxTurn-1));
+        if (turn<1) turn=1; if (turn>wrGeom.maxTurn) turn=wrGeom.maxTurn;
+        for (var i=0;i<wrPoints.length;i++) if (wrPoints[i].turn===turn) return wrPoints[i];
+        return null;
+    };
+    cv.addEventListener('mousemove', function(e) {
+        var pt = locate(e); var tip = document.getElementById('wr-tip');
+        if (!pt) { tip.style.display='none'; return; }
+        var mv = analyzeMoveHistory[pt.turn-1];
+        var mvTxt = mv ? ((mv.color===1?'黑':'白')+(mv.pass?' Pass':': '+COLS[mv.col]+(boardSize-mv.row))) : '';
+        tip.innerHTML = '第 '+pt.turn+' 手 '+mvTxt+'<br>黑胜率 '+pt.winrate+'%（目差 '+pt.scoreLead+'）';
+        var rect = cv.getBoundingClientRect();
+        tip.style.display = 'block';
+        tip.style.left = Math.min(e.clientX-rect.left+14, rect.width-150)+'px';
+        tip.style.top = (e.clientY-rect.top-10)+'px';
+    });
+    cv.addEventListener('mouseleave', function(){ document.getElementById('wr-tip').style.display='none'; });
+    cv.addEventListener('click', function(e) {
+        var pt = locate(e); if (!pt) return;
+        // 跳转到该局面（setMoveIndex 语义：浏览到第 turn 手）
+        analyzeMoveIndex = Math.min(pt.turn, analyzeMoveHistory.length);
+        rebuildAnalyzeBoard();
+        inferNextPlayer();
+        document.getElementById('next-player').value = analyzeNextColor;
+        var lm = analyzeMoveIndex>0 ? analyzeMoveHistory[analyzeMoveIndex-1] : null;
+        analyzeLastMove = (lm && !lm.pass) ? [lm.row,lm.col] : null;
+        analyzeResults = []; hoveredPVIndex = -1; clearPinnedPV(); groupLifeResult = null;
+        updateMoveIndexDisplay(); updateStoneCount(); updatePlayModeIndicator(); drawBoard();
+        closeWinrateModal();
+        document.getElementById('analyze-status').innerHTML = '已跳转到第 '+pt.turn+' 手（黑胜率 '+pt.winrate+'%，目差 '+pt.scoreLead+'）';
+    });
+})();
+
+
 // ==============================================================
 function initAnalyzeBoardData() {
     analyzeBoard = [];
@@ -815,11 +1684,13 @@ function initAnalyzeBoardData() {
         analyzeBoard[r]=[]; analyzeBaseBoard[r]=[];
         for(var c=0;c<boardSize;c++) { analyzeBoard[r][c]=0; analyzeBaseBoard[r][c]=0; }
     }
-    analyzeResults = [];
+    analyzeResults = []; clearPinnedPV();
+    groupLifeResult = null;
     analyzeNextColor = document.getElementById('next-player') ? document.getElementById('next-player').value : 'B';
     analyzeLastMove = null;
     analyzeMoveHistory = [];
     analyzeMoveIndex = 0;
+    analyzeKomi = 6.5;
     updateMoveIndexDisplay();
     updateStoneCount();
 }
@@ -829,6 +1700,7 @@ function rebuildAnalyzeBoard() {
     for (var r=0;r<boardSize;r++) for(var c=0;c<boardSize;c++) analyzeBoard[r][c]=analyzeBaseBoard[r][c];
     for (var i=0;i<analyzeMoveIndex;i++) {
         var mv = analyzeMoveHistory[i];
+        if (mv.pass) continue; // Pass 不落子
         analyzeBoard[mv.row][mv.col] = mv.color;
         // 重新执行提子
         if (mv.captured && mv.captured.length>0) {
@@ -856,8 +1728,10 @@ function analyzeMoveBack() {
         inferNextPlayer();
     }
     document.getElementById('next-player').value = analyzeNextColor;
-    analyzeLastMove = analyzeMoveIndex > 0 ? [analyzeMoveHistory[analyzeMoveIndex-1].row, analyzeMoveHistory[analyzeMoveIndex-1].col] : null;
-    analyzeResults = [];
+    var lm = analyzeMoveIndex > 0 ? analyzeMoveHistory[analyzeMoveIndex-1] : null;
+    analyzeLastMove = (lm && !lm.pass) ? [lm.row, lm.col] : null;
+    analyzeResults = []; clearPinnedPV();
+    groupLifeResult = null;
     hoveredPVIndex = -1;
     updateMoveIndexDisplay();
     updatePlayModeIndicator();
@@ -873,8 +1747,10 @@ function analyzeMoveForward() {
     var lastColor = analyzeMoveHistory[analyzeMoveIndex-1].color;
     analyzeNextColor = (lastColor === 1) ? 'W' : 'B';
     document.getElementById('next-player').value = analyzeNextColor;
-    analyzeLastMove = [analyzeMoveHistory[analyzeMoveIndex-1].row, analyzeMoveHistory[analyzeMoveIndex-1].col];
-    analyzeResults = [];
+    var lm = analyzeMoveHistory[analyzeMoveIndex-1];
+    analyzeLastMove = lm.pass ? null : [lm.row, lm.col];
+    analyzeResults = []; clearPinnedPV();
+    groupLifeResult = null;
     hoveredPVIndex = -1;
     updateMoveIndexDisplay();
     updatePlayModeIndicator();
@@ -883,10 +1759,17 @@ function analyzeMoveForward() {
 }
 
 function handleAnalyzeClick(row, col) {
-    if (isAnalyzing) return;
-    if (analyzeBoard[row][col] !== 0) return; // 有子的位置不能下
+if (isAnalyzing) return;
 
-    // 如果当前不在最末尾，截断后面的历史
+// 死活提示：点击棋子 = 评估该棋块死活，不落子（需先于「有子早退」检查）
+if (groupLifeOn) {
+groupLifeClick(row, col);
+return;
+}
+
+if (analyzeBoard[row][col] !== 0) return; // 有子的位置不能下
+
+// 如果当前不在最末尾，截断后面的历史
     if (analyzeMoveIndex < analyzeMoveHistory.length) {
         analyzeMoveHistory = analyzeMoveHistory.slice(0, analyzeMoveIndex);
     }
@@ -901,7 +1784,8 @@ function handleAnalyzeClick(row, col) {
     // 切换下一手颜色
     analyzeNextColor = (analyzeNextColor === 'B') ? 'W' : 'B';
     document.getElementById('next-player').value = analyzeNextColor;
-    analyzeResults = [];
+    analyzeResults = []; clearPinnedPV();
+    groupLifeResult = null;
     hoveredPVIndex = -1;
     updateMoveIndexDisplay();
     updateStoneCount();
@@ -931,21 +1815,7 @@ function inferNextPlayer() {
     analyzeNextColor = inferred;
 }
 
-function clearAnalyzeBoard() {
-    initAnalyzeBoardData();
-    analyzeLastMove = null;
-    analyzeNextColor = document.getElementById('next-player').value;
-    updatePlayModeIndicator();
-    document.getElementById('paste-thumb').style.display = 'none';
-    document.getElementById('paste-label').style.display = '';
-    document.getElementById('paste-hint').style.display = '';
-    document.getElementById('paste-zone').classList.remove('has-img');
-    document.getElementById('analyze-status').innerHTML = '摆好局面后点击分析';
-    drawBoard();
-}
 
-
-// 粘贴截图
 document.addEventListener('paste', function(e) {
     if (currentTab !== 'analyze') return;
     var items = e.clipboardData && e.clipboardData.items;
@@ -967,7 +1837,11 @@ pz.addEventListener('drop', function(e){
     e.preventDefault(); pz.classList.remove('has-img');
     if (currentTab!=='analyze') return;
     var files = e.dataTransfer.files;
-    if (files.length>0 && files[0].type.indexOf('image')!==-1) processImageFile(files[0]);
+    if (files.length>0) {
+        var f = files[0];
+        if (f.name && /\.sgf$/i.test(f.name)) { importSgfFile(f); return; }
+        if (f.type.indexOf('image')!==-1) processImageFile(f);
+    }
 });
 
 function handleFileUpload(e) {
@@ -977,7 +1851,8 @@ function handleFileUpload(e) {
 }
 
 function processImageFile(file) {
-    document.getElementById('analyze-status').innerHTML = '<span class="thinking">正在识别棋盘...</span>';
+    var tok = analyzeStatusBegin();
+    analyzeStatusSet(tok, '<span class="thinking">正在识别棋盘...</span>');
 
     var reader = new FileReader();
     reader.onload = function(ev) {
@@ -998,6 +1873,7 @@ function processImageFile(file) {
             method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({image: b64, board_size: boardSize})
         }).then(function(r){return r.json();}).then(function(data){
+            if (tok !== analyzeStatusCurrent()) return; // 过期响应：界面已被更新操作接管，不碰棋盘与状态栏
             if (data.status==='ok' && data.stones) {
                 initAnalyzeBoardData();
                 for (var i=0;i<data.stones.length;i++) {
@@ -1010,14 +1886,14 @@ function processImageFile(file) {
                 updatePlayModeIndicator();
                 updateStoneCount();
                 drawBoard();
-                document.getElementById('analyze-status').innerHTML =
+                analyzeStatusSet(tok,
                     '识别完成: 黑子 '+data.stone_count.black+' 枚, 白子 '+data.stone_count.white+' 枚<br>' +
-                    '<span style="color:#f8d76b">可直接点击棋盘落子（黑白交替），或点「AI 分析」查看推荐</span>';
+                    '<span style="color:#f8d76b">可直接点击棋盘落子（黑白交替），或点「AI 分析」查看推荐</span>');
             } else {
-                document.getElementById('analyze-status').innerHTML = '识别失败: '+(data.error||data.message||'未知错误');
+                analyzeStatusSet(tok, '识别失败: '+(data.error||data.message||'未知错误'));
             }
         }).catch(function(err){
-            document.getElementById('analyze-status').innerHTML = '识别请求失败: '+err.message;
+            analyzeStatusSet(tok, '识别请求失败: '+err.message);
         });
     };
     reader2.readAsArrayBuffer(file);
@@ -1030,16 +1906,44 @@ function arrayBufferToBase64(buffer) {
     return btoa(binary);
 }
 
+// ==============================================================
+// 分析模块：组装当前局面快照
+// stones = 当前棋盘（含摆子与试看落子）；setup_stones = 无顺序摆子底板（截图识别/SGF AB/AW）；
+// move_history = 当前浏览位置前的着法序列。三者一并发给后端，
+// 由后端决定走 move_history 路径还是 initialStones 路径，前端不感知引擎查询策略。
+// ==============================================================
+function buildAnalyzeSnapshot() {
+    var stones = [], setup = [], mh = [];
+    for (var r=0;r<boardSize;r++) for (var c=0;c<boardSize;c++) {
+        var g = COLS[c]+String(boardSize-r);
+        if (analyzeBoard[r]&&analyzeBoard[r][c]===1) stones.push({color:'B',pos:g});
+        else if (analyzeBoard[r]&&analyzeBoard[r][c]===2) stones.push({color:'W',pos:g});
+        if (analyzeBaseBoard[r]&&analyzeBaseBoard[r][c]===1) setup.push({color:'B',pos:g});
+        else if (analyzeBaseBoard[r]&&analyzeBaseBoard[r][c]===2) setup.push({color:'W',pos:g});
+    }
+    for (var i=0;i<analyzeMoveIndex;i++) {
+        var mv = analyzeMoveHistory[i];
+        var cl = (mv.color===1)?'B':'W';
+        if (mv.pass) mh.push([cl,'pass']);
+        else mh.push([cl, COLS[mv.col]+String(boardSize-mv.row)]);
+    }
+    return {stones:stones, setup_stones:setup, move_history:mh};
+}
+
+// 分析区状态栏响应竞态防护：每次发起新请求领取序号，
+// 迟到的过期响应（如识别回调晚于分析）不得覆盖界面状态
+var analyzeStatusSeq = 0;
+function analyzeStatusBegin() { return ++analyzeStatusSeq; }
+function analyzeStatusCurrent() { return analyzeStatusSeq; }
+function analyzeStatusSet(tok, html) {
+    if (tok === analyzeStatusSeq) document.getElementById('analyze-status').innerHTML = html;
+}
+
 // AI 分析
 function runAnalysis() {
-    if (isAnalyzing) return;
-    var stones = [];
-    for (var r=0;r<boardSize;r++) for(var c=0;c<boardSize;c++) {
-        if (analyzeBoard[r]&&analyzeBoard[r][c]!==0) {
-            stones.push({color: analyzeBoard[r][c]===1?'B':'W', pos: COLS[c]+String(boardSize-r)});
-        }
-    }
-    if (stones.length===0) {
+if (isAnalyzing) return;
+var snap = buildAnalyzeSnapshot();
+    if (snap.stones.length===0) {
         document.getElementById('analyze-status').innerHTML = '棋盘上没有棋子，请先摆放棋子或粘贴截图';
         return;
     }
@@ -1047,18 +1951,22 @@ function runAnalysis() {
     var nextPlayer = document.getElementById('next-player').value;
     var analyzeVisits = parseInt(document.getElementById('analyze-strength').value);
     isAnalyzing = true;
+    var tok = analyzeStatusBegin();
+    pinnedPVIndex = -1;  // 重新分析时清除固定展开
     document.getElementById('btn-analyze').disabled = true;
-    document.getElementById('analyze-status').innerHTML = '<span class="thinking">AI 分析中... 请等待完成后再落子</span>';
+    // 根据 visits 档位预估时间
+    var estTime = Math.min(Math.round(analyzeVisits / 200) + 5, 60);
+    var estDesc = analyzeVisits <= 100 ? '几秒' : analyzeVisits <= 400 ? '约 5-7 秒' : analyzeVisits <= 1600 ? '约 10-15 秒' : analyzeVisits <= 5000 ? '约 20-30 秒' : '约 30-60 秒';
+    analyzeStatusSet(tok, '<span class="thinking">AI 分析中... 预计 ' + estDesc + '</span>');
 
 fetch('/api/analyze', {
 method:'POST', headers:{'Content-Type':'application/json'},
-body: JSON.stringify({stones:stones, next_player:nextPlayer, board_size:boardSize, komi:6.5, max_visits:analyzeVisits})
+body: JSON.stringify({stones:snap.stones, setup_stones:snap.setup_stones, next_player:nextPlayer, board_size:boardSize, komi:analyzeKomi, max_visits:analyzeVisits, move_history:snap.move_history})
     }).then(function(r){return r.json();}).then(function(data){
         if (data.status==='ok' && data.recommendations) {
             analyzeResults = data.recommendations;
             analyzeNextColor = nextPlayer;
             updatePlayModeIndicator();
-            drawBoard();
             var html = '<b>Top '+analyzeResults.length+' 推荐走法</b> (轮'+(nextPlayer==='B'?'黑':'白')+'走)<br>';
             for (var i=0;i<analyzeResults.length;i++) {
                 var rec = analyzeResults[i];
@@ -1068,14 +1976,17 @@ body: JSON.stringify({stones:stones, next_player:nextPlayer, board_size:boardSiz
                     '领先 '+sign+rec.scoreLead+'目  ('+rec.visits+'次模拟)<br>';
             }
             html += '<br><span style="color:#f8d76b">➔ 点击棋盘空位落子，再点「AI 分析」查看推荐</span>';
-            document.getElementById('analyze-status').innerHTML = html;
+            analyzeStatusSet(tok, html);
+            drawBoard();
+        } else if (data.status==='superseded') {
+            // 已被更新的分析请求取代（后端过期淘汰），静默忽略
         } else {
-            document.getElementById('analyze-status').innerHTML = '分析失败: '+(data.error||data.message||'未知');
+            analyzeStatusSet(tok, '分析失败: '+(data.error||data.message||'未知'));
         }
         isAnalyzing = false;
         document.getElementById('btn-analyze').disabled = false;
     }).catch(function(err){
-        document.getElementById('analyze-status').innerHTML = '分析请求失败: '+err.message;
+        analyzeStatusSet(tok, '分析请求失败: '+err.message);
         isAnalyzing = false;
         document.getElementById('btn-analyze').disabled = false;
     });
@@ -1091,113 +2002,12 @@ function updatePlayModeIndicator() {
 
 function onNextPlayerChange() {
     analyzeNextColor = document.getElementById('next-player').value;
+    clearPinnedPV();  // 固定 PV 颜色序列对应分析时的轮走方，切换后失真需清除
     updatePlayModeIndicator();
     drawBoard();
 }
 
-// ==============================================================
-// 一键截屏分析
-// ==============================================================
-function oneClickAnalyze() {
-    if (isAnalyzing) return;
-    
-    // 自动切换到分析 tab
-    if (currentTab !== 'analyze') {
-        document.querySelector('.tab-btn[data-tab="analyze"]').click();
-    }
-    
-    isAnalyzing = true;
-    document.getElementById('btn-screenshot').disabled = true;
-    document.getElementById('btn-analyze').disabled = true;
-    document.getElementById('analyze-status').innerHTML = '<span class="thinking">请框选棋盘区域... 截屏后自动识别分析</span>';
-    
-    var analyzeVisits = parseInt(document.getElementById('analyze-strength').value);
-    
-    fetch('/api/screenshot', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({board_size: boardSize, max_visits: analyzeVisits})
-    }).then(function(r){return r.json();}).then(function(data){
-        isAnalyzing = false;
-        document.getElementById('btn-screenshot').disabled = false;
-        document.getElementById('btn-analyze').disabled = false;
-        
-        if (data.status === 'cancelled') {
-            document.getElementById('analyze-status').innerHTML = '截屏已取消';
-            return;
-        }
-        if (data.status !== 'ok') {
-            document.getElementById('analyze-status').innerHTML = '错误: '+(data.message||data.error||'未知错误');
-            return;
-        }
-        
-        // 显示截图缩略图
-        if (data.image) {
-            var thumb = document.getElementById('paste-thumb');
-            thumb.src = 'data:image/png;base64,'+data.image;
-            thumb.style.display = 'block';
-            document.getElementById('paste-label').style.display = 'none';
-            document.getElementById('paste-hint').style.display = 'none';
-            document.getElementById('paste-zone').classList.add('has-img');
-        }
-        
-        // 填充棋盘
-        initAnalyzeBoardData();
-        analyzeMoveHistory = [];
-        analyzeMoveIndex = 0;
-        var stones = data.stones || [];
-        for (var i=0; i<stones.length; i++) {
-            var s = stones[i];
-            analyzeBoard[s.row][s.col] = (s.color==='B') ? 1 : 2;
-            analyzeBaseBoard[s.row][s.col] = (s.color==='B') ? 1 : 2;
-        }
-        
-        // 设置下一手颜色
-        var np = data.next_player || 'B';
-        analyzeNextColor = np;
-        document.getElementById('next-player').value = np;
-        
-        // 显示分析结果
-        analyzeResults = data.recommendations || [];
-        hoveredPVIndex = -1;
-        updateMoveIndexDisplay();
-        updatePlayModeIndicator();
-        updateStoneCount();
-        drawBoard();
-        
-        var sc = data.stone_count || {};
-        var html = '识别完成: 黑子 '+(sc.black||0)+' 枚, 白子 '+(sc.white||0)+' 枚<br>';
-        if (analyzeResults.length > 0) {
-            html += '<b>Top '+analyzeResults.length+' 推荐走法</b> (轮'+(np==='B'?'黑':'白')+'走)<br>';
-            for (var j=0; j<analyzeResults.length; j++) {
-                var rec = analyzeResults[j];
-                var sign = rec.scoreLead >= 0 ? '+' : '';
-                html += '<span style="color:'+RANK_COLORS[j]+'">&#9679;</span> ' +
-                    '<b>'+(j+1)+'. '+rec.move+'</b>  胜率 '+rec.winrate+'%  ' +
-                    '领先 '+sign+rec.scoreLead+'目  ('+rec.visits+'次模拟)<br>';
-            }
-        } else if (data.message) {
-            html += data.message;
-        }
-        html += '<br><span style="color:#888;font-size:0.8em">快捷键 Ctrl+Shift+A 一键截屏分析</span>';
-        document.getElementById('analyze-status').innerHTML = html;
-    }).catch(function(err){
-        isAnalyzing = false;
-        document.getElementById('btn-screenshot').disabled = false;
-        document.getElementById('btn-analyze').disabled = false;
-        document.getElementById('analyze-status').innerHTML = '截屏分析失败: '+err.message;
-    });
-}
 
-// 快捷键: Ctrl+Shift+A 触发一键截屏分析
-document.addEventListener('keydown', function(e) {
-    if (e.ctrlKey && e.shiftKey && (e.key === 'A' || e.key === 'a')) {
-        e.preventDefault();
-        oneClickAnalyze();
-    }
-});
-
-// ==============================================================
-// 初始化
 // ==============================================================
 initPlayBoard();
 initAnalyzeBoardData();
